@@ -6,13 +6,23 @@ Kegs is an Apple //gs emulator for Mac OS X, Win32, Linux and Unix/X11
 The latest version on the main KEGS home page is v0.91 which doesn't work on Intel Macs. In fact, only
 small build changes are required, so I have forked the code to Github with my changes.
 
-Original homepage with useful info on how to get it running is here: (http://kegs.sourceforge.net/)[http://kegs.sourceforge.net/]
+Original homepage with useful info on how to get it running is here: http://kegs.sourceforge.net/
+
+Building
+--------
+
+* Install Apple's dev tools
+* cd src
+* make
+* make to_pro # this is a utility for formatting disk images - see below
+
+You will now have a .app for the emulator and a commandline tool to_pro in the src directory.
 
 Disk image and compression utilities
 ------------------------------------
 
-NuLib: (http://www.nulib.com/)[http://www.nulib.com/]
-Ciderpress (Windows): (http://ciderpress.sourceforge.net/)[http://ciderpress.sourceforge.net/]
+NuLib: http://www.nulib.com/
+Ciderpress (Windows): http://ciderpress.sourceforge.net/
 
 License
 -------
