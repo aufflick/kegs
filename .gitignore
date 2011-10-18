@@ -1,0 +1,4 @@
+*.o
+src/16inst_c.h
+src/8inst_c.h
+src/size_c.h

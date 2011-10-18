@@ -24,7 +24,7 @@ specials_clean:
 
 # Mac builds:
 kegsmac: $(OBJECTS) compile_time.o
-	$(CC) $(CCOPTS) $(LDOPTS) -arch ppc $(OBJECTS) compile_time.o $(LDFLAGS) -o kegsmac $(EXTRA_LIBS) -prebind -framework Carbon -framework Quicktime
+	$(CC) $(CCOPTS) -arch i386 $(LDOPTS) $(OBJECTS) compile_time.o $(LDFLAGS) -o kegsmac $(EXTRA_LIBS) -prebind -framework Carbon -framework Quicktime
 	mkdir -p ../KEGSMAC.app/Contents/Resources/English.lproj/main.nib
 	mkdir -p ../KEGSMAC.app/Contents/MacOS
 	mv kegsmac ../KEGSMAC.app/Contents/MacOS/KEGSMAC
