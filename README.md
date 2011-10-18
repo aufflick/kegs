@@ -21,8 +21,16 @@ You will now have a .app for the emulator and a commandline tool to_pro in the s
 Disk image and compression utilities
 ------------------------------------
 
+AppleCommander (Java): http://applecommander.sourceforge.net/
+(NB: you need to be a little creative and run the jar at the commandline to work on current OSX)
+
 NuLib: http://www.nulib.com/
 Ciderpress (Windows): http://ciderpress.sourceforge.net/
+
+See Also
+--------
+
+Sweet16 is a more capable emulator that seems to work on Lion out of the box: http://www.sheppyware.net/software-mac/sweet16/
 
 License
 -------
