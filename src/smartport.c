@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_smartport_c[] = "@(#)$KmKId: smartport.c,v 1.29 2003-11-17 15:44:44-05 kentd Exp $";
+const char rcsid_smartport_c[] = "@(#)$KmKId: smartport.c,v 1.31 2004-11-12 23:10:50-05 kentd Exp $";
 
 #include "defc.h"
 
@@ -195,12 +195,9 @@ do_c70d(word32 arg0)
 			/* see technotes/smpt/tn-smpt-002 */
 			set_memory_c(status_ptr, g_highest_smartport_unit+1, 0);
 			set_memory_c(status_ptr+1, 0xff, 0); /* interrupt stat*/
-			set_memory_c(status_ptr+2, 0x02, 0); /* vendor id */
-			set_memory_c(status_ptr+3, 0x00, 0); /* vendor id */
-			set_memory_c(status_ptr+4, 0x00, 0); /* version lo */
-			set_memory_c(status_ptr+5, 0x10, 0); /* version hi */
-			set_memory_c(status_ptr+6, 0x00, 0);
-			set_memory_c(status_ptr+7, 0x00, 0);
+			set_memory16_c(status_ptr+2, 0x0002, 0); /* vendor id */
+			set_memory16_c(status_ptr+4, 0x1000, 0); /* version */
+			set_memory16_c(status_ptr+6, 0x0000, 0);
 
 			engine.xreg = 8;
 			engine.yreg = 0;
@@ -219,9 +216,7 @@ do_c70d(word32 arg0)
 				size = (size+511) / 512;
 			}
 			set_memory_c(status_ptr, stat_val, 0);
-			set_memory_c(status_ptr +1, size & 0xff, 0);
-			set_memory_c(status_ptr +2, (size >> 8) & 0xff, 0);
-			set_memory_c(status_ptr +3, (size >> 16) & 0xff, 0);
+			set_memory24_c(status_ptr +1, size, 0);
 			engine.xreg = 4;
 			if(cmd & 0x40) {
 				set_memory_c(status_ptr + 4,
@@ -249,9 +244,7 @@ do_c70d(word32 arg0)
 			}
 			/* DIB for unit 1 */
 			set_memory_c(status_ptr, stat_val, 0);
-			set_memory_c(status_ptr +1, size & 0xff, 0);
-			set_memory_c(status_ptr +2, (size >> 8) & 0xff, 0);
-			set_memory_c(status_ptr +3, (size >> 16) & 0xff, 0);
+			set_memory24_c(status_ptr +1, size, 0);
 			if(cmd & 0x40) {
 				set_memory_c(status_ptr + 4,
 						(size >> 24) & 0xff, 0);
@@ -267,11 +260,8 @@ do_c70d(word32 arg0)
 			set_memory_c(status_ptr +8, 'S', 0);
 
 			/* hard disk supporting extended calls */
-			set_memory_c(status_ptr + 21, 0x02, 0);
-			set_memory_c(status_ptr + 22, 0xa0, 0);
-
-			set_memory_c(status_ptr + 23, 0x00, 0);
-			set_memory_c(status_ptr + 24, 0x00, 0);
+			set_memory16_c(status_ptr + 21, 0xa002, 0);
+			set_memory16_c(status_ptr + 23, 0x0000, 0);
 
 			if(cmd & 0x40) {
 				engine.xreg = 26;
@@ -766,18 +756,15 @@ do_c700(word32 ret)
 	ret = do_read_c7(0, 0x800, 0);
 
 	set_memory_c(0x7f8, 7, 0);
-	set_memory_c(0x42, 0x01, 0);
-	set_memory_c(0x43, 0x70, 0);
-	set_memory_c(0x44, 0x0, 0);
-	set_memory_c(0x45, 0x8, 0);
-	set_memory_c(0x46, 0x0, 0);
-	set_memory_c(0x47, 0x0, 0);
+	set_memory16_c(0x42, 0x7001, 0);
+	set_memory16_c(0x44, 0x0800, 0);
+	set_memory16_c(0x46, 0x0000, 0);
 	engine.xreg = 0x70;
 	engine.kpc = 0x801;
 
 	if(ret != 0) {
 		printf("Failure reading boot disk in s7d1!\n");
-		engine.kpc = 0xe000;
+		engine.kpc = 0xff59;	/* Jump to monitor, fix $36-$39 */
 	}
 }
 

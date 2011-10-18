@@ -9,7 +9,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_protos_engine_c_h[] = "@(#)$KmKId: protos_engine_c.h,v 1.10 2004-01-10 15:50:02-05 kentd Exp $";
+const char rcsid_protos_engine_c_h[] = "@(#)$KmKId: protos_engine_c.h,v 1.11 2004-10-11 22:48:16-04 kentd Exp $";
 #endif
 
 /* END_HDR */
@@ -20,7 +20,7 @@ word32 get_memory8_io_stub(word32 addr, byte *stat, double *fcycs_ptr, double fp
 word32 get_memory16_pieces_stub(word32 addr, byte *stat, double *fcycs_ptr, Fplus *fplus_ptr, int in_bank);
 word32 get_memory24_pieces_stub(word32 addr, byte *stat, double *fcycs_ptr, Fplus *fplus_ptr, int in_bank);
 void set_memory8_io_stub(word32 addr, word32 val, byte *stat, double *fcycs_ptr, double fplus_x_m1);
-void set_memory16_pieces_stub(word32 addr, word32 val, double *fcycs_ptr, Fplus *fplus_ptr, int in_bank);
+void set_memory16_pieces_stub(word32 addr, word32 val, double *fcycs_ptr, double fplus_1, double fplus_x_m1, int in_bank);
 void set_memory24_pieces_stub(word32 addr, word32 val, double *fcycs_ptr, Fplus *fplus_ptr, int in_bank);
 word32 get_memory_c(word32 addr, int cycs);
 word32 get_memory16_c(word32 addr, int cycs);

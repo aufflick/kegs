@@ -1,4 +1,61 @@
 
+Changes in KEGS v0.91 since v0.90 (12/06/04)
+- Fixed serious bug in engine_c.c that could cause Finder file copies to
+	silently corrupt data.
+- Virtual Modem support--modem appears on serial port, allows outgoing
+	and incoming connections.
+- Sockets (and Virtual Modem) supported on Windows.
+- Fixed various reset bugs (where pressing Ctrl-Reset would cause infinite
+	beeps, etc).
+- Allow user to select ROM file from config panel if not found.
+- Improved Mac OS X interface: Full Screen support and error dialogs.
+- Better floppy support by always having 5.25" read nearest track regardless
+	of head position (supports Last Gladiator game bad crack by
+	emulating other emulators).
+
+Changes in KEGS v0.90 since v0.89 (10/19/04)
+- Make Keypad Joystick the default joystick emulation
+- Fix timezone calculation on Mac OS X for central time zone.
+- Fix handling of long paths in config panel, reported by David Scruffham.
+- Always call joystick_init at startup.
+- Fix F2 keymappings for X Windows, to fix some issue reported by
+	David Wilson.
+- Fixed some documentation issues reported by David Wilson.
+- Fixed a bug in joystick_driver.c reported by Doug Mitton.
+- Add README.a2.compatibility to discuss known issues with programs.
+
+Changes in KEGS v0.89 since v0.88 (10/17/04)
+- Make old mouse button presses disappear after .5 seconds.
+- Add Keypad Joystick, along with configuration menu choices to enable it.
+	The keypad numbers move the joystick to the indicated direction,
+	with chording allowing in-between values.
+	The keypad '0' is button 0 and keypad '1' is button 1.
+- Also add jostick scaling factor and trim adjustment.
+- Allow user to increase keyboard and mouse scan rate to 240Hz from 60Hz
+	for some better game response.
+
+Changes in KEGS v0.88 since v0.87 (10/13/04)
+- Add configuration setting to debug halt on code red halts.  Also add
+	configuration mode (on by default) to shadow text page 2 on ROM 01,
+	which is an enhancement over a real IIgs.
+- Handle mac binary header on images.  Handle compressed .po images.
+- Fix refresh rate to 59.923Hz from 60Hz so that exactly 17030 1MHz cycles
+	pass in one screen refresh period.
+- Enhance trace-to-file function to also write out data values stored using
+	the Data_log info.
+- Debugger adds memory move and memory compare functions.
+- Support "floating bus" where reading certain $C0xx locations returns the
+	current video data.  This allows Bob Bishop's split-screen demos to
+	run and enables Drol's between-level animations to work fully.
+
+Changes in KEGS v0.87 since v0.86 (10/05/04)
+- Remove all of Jonathan Kalbfeld's and Gilles Tschopp's contributions.
+	All of Solaris audio is removed.
+- Fix config screen not drawing correctly if emulator was currently displaying
+	video page 2.
+- Fix STP instruction.
+- Fix mouse-joystick which was halving the Y dimension.
+
 Changes in KEGS v0.86 since v0.85 (03/23/04)
 - Add patch for Solaris sound by Jonathan Kalbfeld.
 - Fix so that F4 enters config panel even while running Prosel-16

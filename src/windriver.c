@@ -8,7 +8,10 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_windriver_c[] = "@(#)$KmKId: windriver.c,v 1.8 2004-03-23 17:25:37-05 kentd Exp $";
+const char rcsid_windriver_c[] = "@(#)$KmKId: windriver.c,v 1.11 2004-11-24 16:43:46-05 kentd Exp $";
+
+/* Based on code from Chea Chee Keong from KEGS32, which is available at */
+/*  http://www.geocities.com/akilgard/kegs32 */
 
 #define WIN32_LEAN_AND_MEAN	/* Tell windows we want less header gunk */
 #define STRICT			/* Tell Windows we want compile type checks */
@@ -186,6 +189,34 @@ int g_a2_key_to_wsym[][3] = {
 	{ 0x4c,	VK_RETURN+0x100, 0 },
 	{ -1, -1, -1 }
 };
+
+int
+win_nonblock_read_stdin(int fd, char *bufptr, int len)
+{
+	HANDLE	oshandle;
+	DWORD	dwret;
+	int	ret;
+
+	errno = EAGAIN;
+	oshandle = (HANDLE)_get_osfhandle(fd);	// get stdin handle
+	dwret = WaitForSingleObject(oshandle, 1);	// wait 1msec for data
+	ret = -1;
+	if(dwret == WAIT_OBJECT_0) {
+		ret = read(fd, bufptr, len);
+	}
+	return ret;
+}
+
+void
+x_dialog_create_kegs_conf(const char *str)
+{
+}
+
+int
+x_show_alert(int is_fatal, const char *str)
+{
+	return 0;
+}
 
 int
 win_update_mouse(int x, int y, int button_states, int buttons_valid)
@@ -634,4 +665,10 @@ x_hide_pointer(int do_hide)
 	} else {
 		ShowCursor(1);
 	}
+}
+
+void
+x_full_screen(int do_full)
+{
+	return;
 }

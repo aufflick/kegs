@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_clock_c[] = "@(#)$KmKId: clock.c,v 1.29 2003-10-17 15:07:35-04 kentd Exp $";
+const char rcsid_clock_c[] = "@(#)$KmKId: clock.c,v 1.31 2004-10-19 17:32:07-04 kentd Exp $";
 
 #include "defc.h"
 #include <time.h>
@@ -34,8 +34,8 @@ int	g_clk_mode = CLK_IDLE;
 int	g_clk_read = 0;
 int	g_clk_reg1 = 0;
 
-word32	c033_data = 0;
-word32	c034_val = 0;
+extern int g_c033_data;
+extern int g_c034_val;
 
 byte	g_bram[2][256];
 byte	*g_bram_ptr = &(g_bram[0][0]);
@@ -173,12 +173,19 @@ update_cur_time()
 	tm_ptr = localtime(&cur_time);
 	secs = mktime(tm_ptr);
 
+#ifdef MAC
+	/* Mac OS X's mktime function modifies the tm_ptr passed in for */
+	/*  the CDT timezone and breaks this algorithm.  So on a Mac, we */
+	/*  will use the tm_ptr->gmtoff member to correct the time */
+	secs = secs + tm_ptr->tm_gmtoff;
+#else
 	secs = (unsigned int)cur_time - (secs2 - secs);
 
 	if(tm_ptr->tm_isdst) {
 		/* adjust for daylight savings time */
 		secs += 3600;
 	}
+#endif
 
 	/* add in secs to make date based on Apple Jan 1, 1904 instead of */
 	/*   Unix's Jan 1, 1970 */
@@ -210,28 +217,10 @@ clock_update_if_needed()
 	}
 }
 
-word32
-clock_read_c033()
-{
-	return c033_data;
-}
-
-word32
-clock_read_c034()
-{
-	return c034_val;
-}
-
-void
-clock_write_c033(word32 val)
-{
-	c033_data = val;
-}
-
 void
 clock_write_c034(word32 val)
 {
-	c034_val = val & 0x7f;
+	g_c034_val = val & 0x7f;
 	if((val & 0x80) != 0) {
 		if((val & 0x20) == 0) {
 			printf("c034 write not last = 1\n");
@@ -251,12 +240,12 @@ do_clock_data()
 
 	clk_printf("In do_clock_data, g_clk_mode: %02x\n", g_clk_mode);
 
-	read = c034_val & 0x40;
+	read = g_c034_val & 0x40;
 	switch(g_clk_mode) {
 	case CLK_IDLE:
-		g_clk_read = (c033_data >> 7) & 1;
-		g_clk_reg1 = (c033_data >> 2) & 3;
-		op = (c033_data >> 4) & 7;
+		g_clk_read = (g_c033_data >> 7) & 1;
+		g_clk_reg1 = (g_c033_data >> 2) & 3;
+		op = (g_c033_data >> 4) & 7;
 		if(!read) {
 			/* write */
 			switch(op) {
@@ -269,7 +258,7 @@ do_clock_data()
 				if(g_clk_reg1 & 0x2) {
 					/* extend BRAM read */
 					g_clk_mode = CLK_BRAM2;
-					g_clk_reg1 = (c033_data & 7) << 5;
+					g_clk_reg1 = (g_c033_data & 7) << 5;
 				}
 				break;
 			case 0x2:	/* read/write ram 0x10-0x13 */
@@ -279,11 +268,11 @@ do_clock_data()
 			case 0x4:	/* read/write ram 0x00-0x0f */
 			case 0x5: case 0x6: case 0x7:
 				g_clk_mode = CLK_BRAM1;
-				g_clk_reg1 = (c033_data >> 2) & 0xf;
+				g_clk_reg1 = (g_c033_data >> 2) & 0xf;
 				break;
 			default:
 				halt_printf("Bad c033_data in CLK_IDLE: %02x\n",
-					c033_data);
+					g_c033_data);
 			}
 		} else {
 			printf("clk read from IDLE mode!\n");
@@ -294,13 +283,13 @@ do_clock_data()
 	case CLK_BRAM2:
 		if(!read) {
 			/* get more bits of bram addr */
-			if((c033_data & 0x83) == 0x00) {
+			if((g_c033_data & 0x83) == 0x00) {
 				/* more address bits */
-				g_clk_reg1 |= ((c033_data >> 2) & 0x1f);
+				g_clk_reg1 |= ((g_c033_data >> 2) & 0x1f);
 				g_clk_mode = CLK_BRAM1;
 			} else {
 				halt_printf("CLK_BRAM2: c033_data: %02x!\n",
-						c033_data);
+						g_c033_data);
 				g_clk_mode = CLK_IDLE;
 			}
 		} else {
@@ -313,9 +302,9 @@ do_clock_data()
 		if(read) {
 			if(g_clk_read) {
 				/* Yup, read */
-				c033_data = g_bram_ptr[g_clk_reg1];
+				g_c033_data = g_bram_ptr[g_clk_reg1];
 				clk_printf("Reading BRAM loc %02x: %02x\n",
-					g_clk_reg1, c033_data);
+					g_clk_reg1, g_c033_data);
 			} else {
 				halt_printf("CLK_BRAM1: said wr, now read\n");
 			}
@@ -325,8 +314,8 @@ do_clock_data()
 			} else {
 				/* Yup, write */
 				clk_printf("Writing BRAM loc %02x with %02x\n",
-					g_clk_reg1, c033_data);
-				g_bram_ptr[g_clk_reg1] = c033_data;
+					g_clk_reg1, g_c033_data);
+				g_bram_ptr[g_clk_reg1] = g_c033_data;
 				g_config_kegs_update_needed = 1;
 			}
 		}
@@ -337,20 +326,21 @@ do_clock_data()
 			if(g_clk_read == 0) {
 				halt_printf("Reading time, but in set mode!\n");
 			}
-			c033_data = (g_clk_cur_time >> (g_clk_reg1 * 8)) & 0xff;
+			g_c033_data = (g_clk_cur_time >> (g_clk_reg1 * 8)) &
+									0xff;
 			clk_printf("Returning time byte %d: %02x\n",
-				g_clk_reg1, c033_data);
+				g_clk_reg1, g_c033_data);
 		} else {
 			/* Write */
 			if(g_clk_read) {
 				halt_printf("Write time, but in read mode!\n");
 			}
 			clk_printf("Writing TIME loc %d with %02x\n",
-				g_clk_reg1, c033_data);
+				g_clk_reg1, g_c033_data);
 			mask = 0xff << (8 * g_clk_reg1);
 
 			g_clk_cur_time = (g_clk_cur_time & (~mask)) |
-				((c033_data & 0xff) << (8 *g_clk_reg1));
+				((g_c033_data & 0xff) << (8 * g_clk_reg1));
 		}
 		g_clk_mode = CLK_IDLE;
 		break;
@@ -361,24 +351,24 @@ do_clock_data()
 		} else {
 			switch(g_clk_reg1) {
 			case 0x0:	/* test register */
-				if(c033_data & 0xc0) {
+				if(g_c033_data & 0xc0) {
 					printf("Writing test reg: %02x!\n",
-						c033_data);
+						g_c033_data);
 					/* set_halt(1); */
 				}
 				break;
 			case 0x1:	/* write protect reg */
 				clk_printf("Writing clk wr_protect: %02x\n",
-					c033_data);
-				if(c033_data & 0x80) {
+					g_c033_data);
+				if(g_c033_data & 0x80) {
 					printf("Stop, wr clk wr_prot: %02x\n",
-						c033_data);
+						g_c033_data);
 					/* set_halt(1); */
 				}
 				break;
 			default:
 				halt_printf("Writing int reg: %02x with %02x\n",
-					g_clk_reg1, c033_data);
+					g_clk_reg1, g_c033_data);
 			}
 		}
 		g_clk_mode = CLK_IDLE;

@@ -8,11 +8,13 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_adb_c[] = "@(#)$KmKId: adb.c,v 1.63 2004-03-23 18:46:25-05 kentd Exp $";
+const char rcsid_adb_c[] = "@(#)$KmKId: adb.c,v 1.73 2004-11-14 14:05:33-05 kentd Exp $";
 
 /* adb_mode bit 3 and bit 2 (faster repeats for arrows and space/del) not done*/
 
 #include "adb.h"
+
+int g_fullscreen = 0;
 
 extern int Verbose;
 extern word32 g_vbl_count;
@@ -21,11 +23,14 @@ extern int g_num_lines_prev_superhires;
 extern int g_rom_version;
 extern int g_fast_disk_emul;
 extern int g_limit_speed;
+extern int g_irq_pending;
 extern int g_swap_paddles;
 extern int g_invert_paddles;
+extern int g_joystick_type;
 extern int g_a2vid_palette;
 extern int g_config_control_panel;
 extern word32 g_cfg_vbl_count;
+extern double g_cur_dcycs;
 
 extern byte *g_slow_memory_ptr;
 extern byte *g_memory_ptr;
@@ -84,28 +89,29 @@ int g_warp_pointer = 0;
 int g_hide_pointer = 0;
 int g_unhide_pointer = 0;
 
-
 int g_mouse_a2_x = 0;
 int g_mouse_a2_y = 0;
 int g_mouse_a2_button = 0;
 int g_mouse_fifo_pos = 0;
+int g_mouse_raw_x = 0;
+int g_mouse_raw_y = 0;
 
 #define ADB_MOUSE_FIFO		8
 
-int g_mouse_fifo_x[ADB_MOUSE_FIFO] = { 0 };
-int g_mouse_fifo_y[ADB_MOUSE_FIFO] = { 0 };
-int g_mouse_fifo_buttons[ADB_MOUSE_FIFO] = { 0 };
+STRUCT(Mouse_fifo) {
+	double	dcycs;
+	int	x;
+	int	y;
+	int	buttons;
+};
+
+Mouse_fifo g_mouse_fifo[ADB_MOUSE_FIFO] = { { 0, 0, 0, 0 } };
 
 int g_mouse_warp_x = 0;
 int g_mouse_warp_y = 0;
 
 int	g_adb_mouse_valid_data = 0;
 int	g_adb_mouse_coord = 0;
-
-int	g_adb_data_int_sent = 0;
-int	g_adb_mouse_int_sent = 0;
-int	g_adb_kbd_srq_sent = 0;
-
 
 #define MAX_KBD_BUF		8
 
@@ -128,6 +134,10 @@ int	g_mouse_ctl_addr = 3;		/* ADB ucontroller's mouse addr*/
 
 word32	g_virtual_key_up[4];	/* bitmask of all possible 128 a2codes */
 				/* indicates which keys are up=1 by bit */
+
+int	g_keypad_key_is_down[10] = { 0 };/* List from 0-9 of which keypad */
+					/*  keys are currently pressed */
+
 
 #define SHIFT_DOWN	( (g_c025_val & 0x01) )
 #define CTRL_DOWN	( (g_c025_val & 0x02) )
@@ -171,6 +181,10 @@ adb_init()
 		g_virtual_key_up[i] = -1;
 	}
 
+	for(i = 0; i < 10; i++) {
+		g_keypad_key_is_down[i] = 0;
+	}
+
 	adb_reset();
 }
 
@@ -189,9 +203,9 @@ adb_reset()
 	g_kbd_ctl_addr = 2;
 	g_mouse_ctl_addr = 3;
 
-	g_adb_data_int_sent = 0;
-	g_adb_mouse_int_sent = 0;
-	g_adb_kbd_srq_sent = 0;
+	adb_clear_data_int();
+	adb_clear_mouse_int();
+	adb_clear_kbd_srq();
 
 	g_adb_data_pending = 0;
 	g_adb_interrupt_byte = 0;
@@ -201,6 +215,7 @@ adb_reset()
 
 	g_kbd_reg0_pos = 0;
 	g_kbd_reg3_16bit = 0x602;
+
 }
 
 
@@ -250,8 +265,6 @@ show_adb_log(void)
 	printf("kbd: dev: %x, ctl: %x; mouse: dev: %x, ctl: %x\n",
 		g_kbd_dev_addr, g_kbd_ctl_addr,
 		g_mouse_dev_addr, g_mouse_ctl_addr);
-	printf("adb_data_int_sent: %d, adb_kbd_srq_sent: %d, mouse_int: %d\n",
-		g_adb_data_int_sent, g_adb_kbd_srq_sent, g_adb_mouse_int_sent);
 	printf("g_adb_state: %d, g_adb_interrupt_byte: %02x\n",
 		g_adb_state, g_adb_interrupt_byte);
 }
@@ -271,11 +284,8 @@ adb_add_kbd_srq()
 {
 	if(g_kbd_reg3_16bit & 0x200) {
 		/* generate SRQ */
-		g_adb_interrupt_byte |= 0x08;;
-		if(!g_adb_kbd_srq_sent) {
-			g_adb_kbd_srq_sent = 1;
-			add_irq();
-		}
+		g_adb_interrupt_byte |= 0x08;
+		add_irq(IRQ_PENDING_ADB_KBD_SRQ);
 	} else {
 		printf("Got keycode but no kbd SRQ!\n");
 	}
@@ -284,10 +294,7 @@ adb_add_kbd_srq()
 void
 adb_clear_kbd_srq()
 {
-	if(g_adb_kbd_srq_sent) {
-		remove_irq();
-		g_adb_kbd_srq_sent = 0;
-	}
+	remove_irq(IRQ_PENDING_ADB_KBD_SRQ);
 
 	/* kbd SRQ's are the only ones to handle now, so just clean it out */
 	g_adb_interrupt_byte &= (~(0x08));
@@ -297,10 +304,7 @@ void
 adb_add_data_int()
 {
 	if(g_c027_val & ADB_C027_DATA_INT) {
-		if(!g_adb_data_int_sent) {
-			g_adb_data_int_sent = 1;
-			add_irq();
-		}
+		add_irq(IRQ_PENDING_ADB_DATA);
 	}
 }
 
@@ -308,31 +312,20 @@ void
 adb_add_mouse_int()
 {
 	if(g_c027_val & ADB_C027_MOUSE_INT) {
-		if(!g_adb_mouse_int_sent) {
-			/* printf("Mouse int sent\n"); */
-			g_adb_mouse_int_sent = 1;
-			add_irq();
-		}
+		add_irq(IRQ_PENDING_ADB_MOUSE);
 	}
 }
 
 void
 adb_clear_data_int()
 {
-	if(g_adb_data_int_sent) {
-		remove_irq();
-		g_adb_data_int_sent = 0;
-	}
+	remove_irq(IRQ_PENDING_ADB_DATA);
 }
 
 void
 adb_clear_mouse_int()
 {
-	if(g_adb_mouse_int_sent) {
-		remove_irq();
-		g_adb_mouse_int_sent = 0;
-		/* printf("Mouse int clear, button: %d\n", g_mouse_a2_button);*/
-	}
+	remove_irq(IRQ_PENDING_ADB_MOUSE);
 }
 
 
@@ -580,7 +573,7 @@ adb_read_c026()
 	case ADB_IDLE:
 		ret = g_adb_interrupt_byte;
 		g_adb_interrupt_byte = 0;
-		if(g_adb_kbd_srq_sent) {
+		if(g_irq_pending & IRQ_PENDING_ADB_KBD_SRQ) {
 			g_adb_interrupt_byte |= 0x08;
 		}
 		if(g_adb_data_pending == 0) {
@@ -1088,13 +1081,55 @@ write_adb_ram(word32 addr, int val)
 }
 
 int
+adb_get_keypad_xy(int get_y)
+{
+	int	x, y;
+	int	key;
+	int	num_keys;
+	int	i, j;
+
+	key = 1;
+	num_keys = 0;
+	x = 0;
+	y = 0;
+	for(i = 0; i < 3; i++) {
+		for(j = 0; j < 3; j++) {
+			if(g_keypad_key_is_down[key]) {
+				num_keys++;	
+				x = x + (j - 1)*32768;
+				y = y + (1 - i)*32768;
+			}
+			key++;
+		}
+	}
+	if(num_keys == 0) {
+		num_keys = 1;
+	}
+
+	adb_printf("get_xy=%d, num_keys: %d, x:%d, y:%d\n", get_y,
+							num_keys, x, y);
+
+	if(get_y) {
+		return y / num_keys;
+	} else {
+		return x / num_keys;
+	}
+}
+
+int
 update_mouse(int x, int y, int button_states, int buttons_valid)
 {
+	double	dcycs;
 	int	button1_changed;
 	int	mouse_moved;
 	int	unhide;
 	int	pos;
 	int	i;
+
+	dcycs = g_cur_dcycs;
+
+	g_mouse_raw_x = x;
+	g_mouse_raw_y = y;
 
 	unhide = 0;
 	if(x < 0) {
@@ -1132,47 +1167,50 @@ update_mouse(int x, int y, int button_states, int buttons_valid)
 		y = y >> 1;
 	}
 
+	mouse_compress_fifo(dcycs);
+
 #if 0
 	printf("Update Mouse called with buttons:%d x,y:%d,%d, fifo:%d,%d, "
 		" a2: %d,%d\n", buttons_valid, x, y,
-		g_mouse_fifo_x[0], g_mouse_fifo_y[0],
+		g_mouse_fifo[0].x, g_mouse_fifo[0].y,
 		g_mouse_a2_x, g_mouse_a2_y);
 #endif
 
 	if((buttons_valid < 0) && g_warp_pointer) {
 		/* Warping the pointer causes it to jump here...this is not */
 		/*  real motion, just update info and get out */
-		g_mouse_a2_x += (x - g_mouse_fifo_x[0]);
-		g_mouse_a2_y += (y - g_mouse_fifo_y[0]);
-		g_mouse_fifo_x[0] = x;
-		g_mouse_fifo_y[0] = y;
+		g_mouse_a2_x += (x - g_mouse_fifo[0].x);
+		g_mouse_a2_y += (y - g_mouse_fifo[0].y);
+		g_mouse_fifo[0].x = x;
+		g_mouse_fifo[0].y = y;
 		return 0;
 	}
 
 #if 0
 	printf("...real move, warp: %d, %d, new x: %d, %d, a2:%d,%d\n",
-		g_mouse_warp_x, g_mouse_warp_y, g_mouse_fifo_x[0],
-		g_mouse_fifo_y[0], g_mouse_a2_x, g_mouse_a2_y);
+		g_mouse_warp_x, g_mouse_warp_y, g_mouse_fifo[0].x,
+		g_mouse_fifo[0].y, g_mouse_a2_x, g_mouse_a2_y);
 #endif
 
-	mouse_moved = (g_mouse_fifo_x[0] != x) || (g_mouse_fifo_y[0] != y);
+	mouse_moved = (g_mouse_fifo[0].x != x) || (g_mouse_fifo[0].y != y);
 
 	g_mouse_a2_x += g_mouse_warp_x;
 	g_mouse_a2_y += g_mouse_warp_y;
-	g_mouse_fifo_x[0] = x;
-	g_mouse_fifo_y[0] = y;
+	g_mouse_fifo[0].x = x;
+	g_mouse_fifo[0].y = y;
+	g_mouse_fifo[0].dcycs = dcycs;
 	g_mouse_warp_x = 0;
 	g_mouse_warp_y = 0;
 
 	button1_changed = (buttons_valid & 1) &&
-			((button_states & 1) != (g_mouse_fifo_buttons[0] & 1));
+			((button_states & 1) != (g_mouse_fifo[0].buttons & 1));
 
-	if((button_states & 4) && !(g_mouse_fifo_buttons[0] & 4) &&
+	if((button_states & 4) && !(g_mouse_fifo[0].buttons & 4) &&
 							(buttons_valid & 4)) {
 		/* right button pressed */
 		adb_increment_speed();
 	}
-	if((button_states & 2) && !(g_mouse_fifo_buttons[0] & 2) &&
+	if((button_states & 2) && !(g_mouse_fifo[0].buttons & 2) &&
 							(buttons_valid & 2)) {
 		/* middle button pressed */
 		halt2_printf("Middle button pressed\n");
@@ -1185,15 +1223,13 @@ update_mouse(int x, int y, int button_states, int buttons_valid)
 		/*  button up/down times.  Using a mouse event list where */
 		/*  deltas accumulate until a button change would work, too */
 		for(i = pos; i >= 0; i--) {
-			g_mouse_fifo_x[i + 1] = g_mouse_fifo_x[i];
-			g_mouse_fifo_y[i + 1] = g_mouse_fifo_y[i];
-			g_mouse_fifo_buttons[i + 1] = g_mouse_fifo_buttons[i]&1;
+			g_mouse_fifo[i + 1] = g_mouse_fifo[i];	/* copy struct*/
 		}
 		g_mouse_fifo_pos = pos + 1;
 	}
 
-	g_mouse_fifo_buttons[0] = (button_states & buttons_valid) |
-				(g_mouse_fifo_buttons[0] & ~buttons_valid);
+	g_mouse_fifo[0].buttons = (button_states & buttons_valid) |
+				(g_mouse_fifo[0].buttons & ~buttons_valid);
 
 	if(mouse_moved || button1_changed) {
 		if( (g_mouse_ctl_addr == g_mouse_dev_addr) &&
@@ -1226,10 +1262,12 @@ mouse_read_c024(double dcycs)
 		return 0;
 	}
 
+	mouse_compress_fifo(dcycs);
+
 	pos = g_mouse_fifo_pos;
-	target_x = g_mouse_fifo_x[pos];
-	target_y = g_mouse_fifo_y[pos];
-	mouse_button = (g_mouse_fifo_buttons[pos] & 1);
+	target_x = g_mouse_fifo[pos].x;
+	target_y = g_mouse_fifo[pos].y;
+	mouse_button = (g_mouse_fifo[pos].buttons & 1);
 	delta_x = target_x - g_mouse_a2_x;
 	delta_y = target_y - g_mouse_a2_y;
 
@@ -1253,7 +1291,7 @@ mouse_read_c024(double dcycs)
 		/* peek into next entry's button info if we are not clamped */
 		/*  and we're returning the y-coord */
 		if(!clamped && g_adb_mouse_coord) {
-			mouse_button = g_mouse_fifo_buttons[pos - 1] & 1;
+			mouse_button = g_mouse_fifo[pos - 1].buttons & 1;
 		}
 	}
 
@@ -1351,15 +1389,38 @@ mouse_read_c024(double dcycs)
 		g_slow_memory_ptr[0x10190], g_slow_memory_ptr[0x10192],
 		g_slow_memory_ptr[0x10191], g_slow_memory_ptr[0x10193]);
 
-	if((g_mouse_fifo_pos == 0) && (g_mouse_fifo_x[0] == a2_x) &&
-			(g_mouse_fifo_y[0] == a2_y) &&
-			((g_mouse_fifo_buttons[0] & 1) == g_mouse_a2_button)) {
+	if((g_mouse_fifo_pos == 0) && (g_mouse_fifo[0].x == a2_x) &&
+			(g_mouse_fifo[0].y == a2_y) &&
+			((g_mouse_fifo[0].buttons & 1) == g_mouse_a2_button)) {
 		g_adb_mouse_valid_data = 0;
 		adb_clear_mouse_int();
 	}
 
 	g_adb_mouse_coord = !g_adb_mouse_coord;
 	return ret;
+}
+
+void
+mouse_compress_fifo(double dcycs)
+{
+	int	pos;
+
+	/* The mouse fifo exists so that fast button changes don't get lost */
+	/*  if the emulator lags behind the mouse events */
+	/* But the FIFO means really old mouse events are saved if */
+	/*  the emulated code isn't looking at the mouse registers */
+	/* This routine compresses all mouse events > 0.5 seconds old */
+
+	for(pos = g_mouse_fifo_pos; pos >= 1; pos--) {
+		if(g_mouse_fifo[pos].dcycs < (dcycs - 500*1000.0)) {
+			/* Remove this entry */
+			adb_printf("Old mouse FIFO pos %d removed\n", pos);
+			g_mouse_fifo_pos = pos - 1;
+			continue;
+		}
+		/* Else, stop searching the FIFO */
+		break;
+	}
 }
 
 void
@@ -1489,7 +1550,8 @@ adb_read_c000()
 		/* got one */
 		if((g_kbd_read_no_update++ > 5) && (g_kbd_chars_buffered > 1)) {
 			/* read 5 times, keys pending, let's move it along */
-			printf("Read %02x 3 times, tossing\n", g_kbd_buf[0]);
+			printf("Read %02x %d times, tossing\n", g_kbd_buf[0],
+					g_kbd_read_no_update);
 			adb_access_c010();
 		}
 	} else {
@@ -1583,7 +1645,8 @@ adb_physical_key_update(int a2code, int is_up)
 {
 	int	autopoll;
 	int	special;
-	int	tmp;
+	int	ascii_and_type;
+	int	ascii;
 
 	/* this routine called by xdriver to pass raw codes--handle */
 	/*  ucontroller and ADB bus protocol issues here */
@@ -1599,17 +1662,17 @@ adb_physical_key_update(int a2code, int is_up)
 		return;
 	}
 
-	/* Remap 0x7b-0x7e to 0x3b-0x3e (arrow keys on new mac keyboards */
+	/* Remap 0x7b-0x7e to 0x3b-0x3e (arrow keys on new mac keyboards) */
 	if(a2code >= 0x7b && a2code <= 0x7e) {
 		a2code = a2code - 0x40;
 	}
 
 	/* Now check for special keys (function keys, etc) */
-	tmp = a2_key_to_ascii[a2code][1];
+	ascii_and_type = a2_key_to_ascii[a2code][1];
 	special = 0;
-	if((tmp & 0xf000) == 0x8000) {
+	if((ascii_and_type & 0xf000) == 0x8000) {
 		/* special function key */
-		special = tmp & 0xff;
+		special = ascii_and_type & 0xff;
 		switch(special) {
 		case 0x01: /* F1 - remap to cmd */
 			a2code = 0x37;
@@ -1643,7 +1706,7 @@ adb_physical_key_update(int a2code, int is_up)
 	if(special && !is_up) {
 		switch(special) {
 		case 0x04: /* F4 - Emulator config panel */
-			g_config_control_panel = !g_config_control_panel;
+			cfg_toggle_config_panel();
 			break;
 		case 0x06: /* F6 - emulator speed */
 			if(SHIFT_DOWN) {
@@ -1679,12 +1742,37 @@ adb_physical_key_update(int a2code, int is_up)
 			change_a2vid_palette((g_a2vid_palette + 1) & 0xf);
 			break;
 		case 0x0b: /* F11 - full screen */
-			/* g_fullscreen = !g_fullscreen; */
-			/* x_full_screen(g_full_screen); */
+			g_fullscreen = !g_fullscreen;
+			x_full_screen(g_fullscreen);
 			break;
 		}
 
 		return;
+	}
+	/* Handle Keypad Joystick here partly...if keypad key pressed */
+	/*  while in Keypad Joystick mode, do not pass it on as a key press */
+	if((ascii_and_type & 0xff00) == 0x1000) {
+		/* Keep track of keypad number keys being up or down even */
+		/*  if joystick mode isn't keypad.  This avoid funny cases */
+		/*  if joystick mode is changed while a key is pressed */
+		ascii = ascii_and_type & 0xff;
+		if(ascii > 0x30 && ascii <= 0x39) {
+			g_keypad_key_is_down[ascii - 0x30] = !is_up;
+		}
+		if(g_joystick_type == 0) {
+			/* If Joystick type is keypad, then do not let these */
+			/*  keypress pass on further, except for cmd/opt */
+			if(ascii == 0x30) {
+				/* remap '0' to cmd */
+				a2code = 0x37;
+			} else if(ascii == 0x2e || ascii == 0x2c) {
+				/* remap '.' and ',' to option */
+				a2code = 0x3a;
+			} else {
+				/* Just ignore it in this mode */
+				return;
+			}
+		}
 	}
 
 	autopoll = 1;
@@ -1749,6 +1837,23 @@ adb_virtual_key_update(int a2code, int is_up)
 		if(g_virtual_key_up[i] & mask) {
 			g_virtual_key_up[i] &= (~mask);
 			adb_key_event(a2code, is_up);
+		}
+	}
+}
+
+void
+adb_all_keys_up()
+{
+	word32	mask;
+	int	i, j;
+
+	for(i = 0; i < 4; i++) {
+		for(j = 0; j < 32; j++) {
+			mask = 1 << j;
+			if((g_virtual_key_up[i] & mask) == 0) {
+				/* create key-up event */
+				adb_physical_key_update(i*32 + j, 1);
+			}
 		}
 	}
 }

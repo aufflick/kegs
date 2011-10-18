@@ -9,7 +9,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_defc_h[] = "@(#)$KmKId: defc.h,v 1.91 2003-11-03 01:29:38-05 kentd Exp $";
+const char rcsid_defc_h[] = "@(#)$KmKId: defc.h,v 1.100 2004-11-09 02:02:07-05 kentd Exp $";
 #endif
 
 #include "defcomm.h"
@@ -34,7 +34,10 @@ void U_STACK_TRACE();
 #define DCYCS_1_MHZ		((DCYCS_28_MHZ/28.0)*(65.0*7/(65.0*7+1.0)))
 #define CYCS_1_MHZ		((int)DCYCS_1_MHZ)
 
-#define DCYCS_IN_16MS_RAW	(DCYCS_1_MHZ / 60.0)
+/* #define DCYCS_IN_16MS_RAW	(DCYCS_1_MHZ / 60.0) */
+#define DCYCS_IN_16MS_RAW	(262.0 * 65.0)
+/* Use precisely 17030 instead of forcing 60 Hz since this is the number of */
+/*  1MHz cycles per screen */
 #define DCYCS_IN_16MS		((double)((int)DCYCS_IN_16MS_RAW))
 #define DRECIP_DCYCS_IN_16MS	(1.0 / (DCYCS_IN_16MS))
 
@@ -70,6 +73,7 @@ void U_STACK_TRACE();
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdarg.h>
 #ifdef HPUX
 # include <machine/inline.h>		/* for GET_ITIMER */
 #endif
@@ -91,6 +95,13 @@ STRUCT(Pc_log) {
 	word32	xreg_yreg;
 	word32	stack_direct;
 	word32	pad;
+};
+
+STRUCT(Data_log) {
+	double	dcycs;
+	word32	addr;
+	word32	val;
+	word32	size;
 };
 
 STRUCT(Event) {
@@ -167,6 +178,21 @@ STRUCT(Cfg_listhdr) {
 	int	num_to_show;
 };
 
+STRUCT(Emustate_intlist) {
+	const char *str;
+	int	*iptr;
+};
+
+STRUCT(Emustate_dbllist) {
+	const char *str;
+	double	*dptr;
+};
+
+STRUCT(Emustate_word32list) {
+	const char *str;
+	word32	*wptr;
+};
+
 #ifdef __LP64__
 # define PTR2WORD(a)	((unsigned long)(a))
 #else
@@ -174,14 +200,38 @@ STRUCT(Cfg_listhdr) {
 #endif
 
 
-#define ALTZP	(statereg & 0x80)
-#define PAGE2	(statereg & 0x40)
-#define RAMRD	(statereg & 0x20)
-#define RAMWRT	(statereg & 0x10)
-#define RDROM	(statereg & 0x08)
-#define LCBANK2	(statereg & 0x04)
-#define ROMB	(statereg & 0x02)
-#define INTCX	(statereg & 0x01)
+#define ALTZP	(g_c068_statereg & 0x80)
+/* #define PAGE2 (g_c068_statereg & 0x40) */
+#define RAMRD	(g_c068_statereg & 0x20)
+#define RAMWRT	(g_c068_statereg & 0x10)
+#define RDROM	(g_c068_statereg & 0x08)
+#define LCBANK2	(g_c068_statereg & 0x04)
+#define ROMB	(g_c068_statereg & 0x02)
+#define INTCX	(g_c068_statereg & 0x01)
+
+#define C041_EN_25SEC_INTS	0x10
+#define C041_EN_VBL_INTS	0x08
+#define C041_EN_SWITCH_INTS	0x04
+#define C041_EN_MOVE_INTS	0x02
+#define C041_EN_MOUSE		0x01
+
+/* WARNING: SCC1 and SCC0 interrupts must be in this order for scc.c */
+/*  This order matches the SCC hardware */
+#define IRQ_PENDING_SCC1_ZEROCNT	0x00001
+#define IRQ_PENDING_SCC1_TX		0x00002
+#define IRQ_PENDING_SCC1_RX		0x00004
+#define IRQ_PENDING_SCC0_ZEROCNT	0x00008
+#define IRQ_PENDING_SCC0_TX		0x00010
+#define IRQ_PENDING_SCC0_RX		0x00020
+#define IRQ_PENDING_C023_SCAN		0x00100
+#define IRQ_PENDING_C023_1SEC		0x00200
+#define IRQ_PENDING_C046_25SEC		0x00400
+#define IRQ_PENDING_C046_VBL		0x00800
+#define IRQ_PENDING_ADB_KBD_SRQ		0x01000
+#define IRQ_PENDING_ADB_DATA		0x02000
+#define IRQ_PENDING_ADB_MOUSE		0x04000
+#define IRQ_PENDING_DOC			0x08000
+
 
 #define EXTRU(val, pos, len) 				\
 	( ( (len) >= (pos) + 1) ? ((val) >> (31-(pos))) : \

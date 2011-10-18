@@ -9,10 +9,8 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.93 2002-11-19 03:10:38-05 kadickey Exp $";
+const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.94 2004-10-13 21:53:44-04 kentd Exp $";
 #endif
-
-#define USE_XIMAGE_CHANGED
 
 #if 0
 # define CHECK_BREAKPOINTS
@@ -59,25 +57,6 @@ const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.93 2002-11-19 03:10:3
 		(&g_dummy_memory1_ptr[BANK_IO_TMP | BANK_IO2_TMP])
 
 #define BANK_BAD_MEM		(&g_dummy_memory1_ptr[0xff])
-
-
-#define LEN_FIFO_BUF	160
-#define LEN_KBD_BUF	160
-
-#define FIFO_OK         0x1
-#define FIFO_INIT       0x2
-#define FIFO_END        0x3
-#define FIFO_40COLS     0x4
-#define FIFO_80COLS     0x5
-#define FIFO_SENDCHAR   0x6
-#define FIFO_SENDKEY	0x7
-#define FIFO_REFRESH    0x8
-
-#define B_OP_SIZE	2
-#define B_OP_D_SIZE	5
-#define B_OP_DTYPE	12
-#define SIZE_OP_DTYPE	7
-
 
 
 #define ENGINE_FCYCLES		0x00
@@ -188,13 +167,4 @@ const char rcsdif_defcomm_h[] = "@(#)$KmKId: defcomm.h,v 1.93 2002-11-19 03:10:3
 
 
 #define A2_BORDER_COLOR_NUM	0xfe
-
-#if 0
-#define A2_TEXT_COLOR_ALT_NUM	0x01
-#define A2_BG_COLOR_ALT_NUM	0x00
-#define A2_TEXT_COLOR_PRIM_NUM	0x02
-#define A2_BG_COLOR_PRIM_NUM	0x00
-#define A2_TEXT_COLOR_FLASH_NUM	0x0c
-#define A2_BG_COLOR_FLASH_NUM	0x08
-#endif
 

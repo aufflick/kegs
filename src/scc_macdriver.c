@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_scc_macdriver_c[] = "@(#)$KmKId: scc_macdriver.c,v 1.3 2003-11-03 01:52:49-05 kentd Exp $";
+const char rcsid_scc_macdriver_c[] = "@(#)$KmKId: scc_macdriver.c,v 1.5 2004-11-25 13:32:51-05 kentd Exp $";
 
 /* This file contains the Mac serial calls */
 
@@ -35,7 +35,8 @@ scc_serial_mac_init(int port)
 
 	scc_ptr->state = 0;		/* mark as uninitialized */
 
-	sprintf(&str_buf[0], "/dev/tty.USA19QW11P1.1");
+	/*sprintf(&str_buf[0], "/dev/tty.USA19QW11P1.1"); */
+	sprintf(&str_buf[0], "/dev/tty.USA19H181P1.1");
 	/* HACK: fix this... */
 
 	fd = open(&str_buf[0], O_RDWR | O_NONBLOCK);
@@ -129,7 +130,7 @@ scc_serial_mac_change_params(int port)
 }
 
 void
-scc_serial_mac_fill_readbuf(int port, double dcycs)
+scc_serial_mac_fill_readbuf(int port, int space_left, double dcycs)
 {
 	byte	tmp_buf[256];
 	Scc	*scc_ptr;
@@ -145,7 +146,8 @@ scc_serial_mac_fill_readbuf(int port, double dcycs)
 	}
 
 	/* Try reading some bytes */
-	ret = read(fd, tmp_buf, 256);
+	space_left = MIN(space_left, 256);
+	ret = read(fd, tmp_buf, space_left);
 
 	if(ret > 0) {
 		for(i = 0; i < ret; i++) {

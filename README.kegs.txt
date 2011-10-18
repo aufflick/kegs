@@ -1,18 +1,19 @@
 
-KEGS: Kent's Emulated GS version 0.86
+KEGS: Kent's Emulated GS version 0.91
 http://kegs.sourceforge.net/
 
 What is this?
 -------------
 
 KEGS is an Apple IIgs emulator for Mac OS X, Linux, and Win32.
-The Apple IIgs was the last released computer in the Apple II line.
-It first was sold in 1986.
+The Apple IIgs was the most powerful computer in the Apple II line.
+It first was sold in 1986.  An Apple IIgs has the capability to run almost all
+Apple II, Apple IIe, and Apple IIc programs.
 
 KEGS supports all Apple IIgs graphics modes (which include all Apple //e
 modes), plus plays all Apple IIgs sounds accurately.  It supports
-limited serial port emulation through sockets, or can use real serial ports
-on Windows and Mac OS X.
+serial port emulation through TCP/IP connections, or can use real
+serial ports on Windows and Mac OS X.
 
 The ROMs and GS/OS (the Apple IIgs operating system) are not included
 with KEGS since they are not freely distributable.  KEGS is a little
@@ -20,49 +21,53 @@ user-hostile now, so if something doesn't work, let me know what went
 wrong, and I'll try to help you out.  See my email address at the end of
 this file.
 
+I'd like to thank Chea Chee Keong who created KEGS32, the first Windows
+port of KEGS.  That version, which has a better Windows-interface but which
+is based on older core code, is at http://www.geocities.com/akilgard/kegs2.
+
 KEGS features:
 -------------
 
 Fast 65816 emulation:
-	About 80MHz on a P4 1.7GHz or a G4 1GHz.
+	About 80MHz on a Pentium 4 1.7GHz or a Mac G4 1GHz.
 Emulates low-level 5.25" and 3.5" drive accesses (even nibble-copiers work!).
 Emulates classic Apple II sound and 32-voice Ensoniq sound.
 	All sound is played in 16-bit stereo at 48KHz (44100 on a Mac).
-Emulates all Apple IIgs graphics modes, including border effects.
-	Can handle mixed-displays (superhires at the top, lores at the bottom).
-	Always does 60 full screen video updates per second.
-	Even supports 3200-color pictures.
+Emulates all Apple IIgs and Apple II graphics modes, including border effects.
+	Can handle display changes at any time (superhires at the top, lores
+	at the bottom).  Always does 60 full screen video updates per second.
+	Supports 3200-color pictures.
 Mouse and joystick support.
-Emulates all Apple IIgs memory "tricks" for full compatibility.
-Low-level ADB keyboard and mouse emulation enables Wolfenstein 3D to run.
-Clock chip emulation makes the host time available to the Apple IIgs.
 Emulated battery RAM remembers control panel settings.
-Limited SCC (serial port) emulation to enable PR#1/2 IN#1/2 and other
-	serial programs to work.
+Limited SCC (serial port) emulation to enable PR#1/2 IN#1/2 and Virtual
+	Modem enables standard Apple terminal programs to telnet to any
+	internet address (or receive connections from another telnet).
 
-KEGS by default emulates a 8MB Apple IIgs, but you can change this with
-the "-mem" command line option.
+KEGS by default emulates a 8MB Apple IIgs, but you can change this from
+the Configuration Panel.
 
 KEGS is so accurate, even the built-in ROM selftests pass (you must be in
-2.8MHz speed mode to pass the self-tests).
+2.8MHz speed mode to pass the self-tests and you must set the Configuration
+Panel entry "Enable Text Page 2 shadow" to "Disabled on ROM 01" for ROM 01).
 
 Release info:
 ------------
 
 Included files:
 	CHANGES			- Description of changes since last release
-	README.kegs		- you're here
-	README.compile		- Describes how to build KEGS
-	README.linux.rpm	- Describes how to install KEGS's RPM for Linux
-	README.win32		- Win32 special directions
-	README.mac		- Mac OS X special directions
-	INTERNALS.overview	- description of how KEGS code works
-	INTERNALS.xdriver	- Describes the xdriver.c routines for porting
-	INTERNALS.iwm		- Describes the internal 3.5" and 5.25" disk
+	README.kegs.txt		- you're here
+	README.compile.txt	- Describes how to build KEGS
+	README.linux.rpm.txt	- Describes how to install KEGS's RPM for Linux
+	README.win32.txt	- Win32 special directions
+	README.mac.txt		- Mac OS X special directions
+	README.a2.compatibility.txt - List of programs which need tweaking
+	src/INTERNALS.overview	- description of how KEGS code works
+	src/INTERNALS.xdriver	- Describes the xdriver.c routines for porting
+	src/INTERNALS.iwm	- Describes the internal 3.5" and 5.25" disk
 				   handling routines
-	kegs			- the executable, for HP-UX 10.20+
-	kegs.spec		- The Linux spec file for making an RPM
-	kegs_conf		- disk image configuration info
+	KEGSMAC			- the Mac OS X executable
+	kegswin.exe		- the Windows executable
+	config.kegs		- disk image configuration info
 	to_pro			- Hard-to-use ProDOS volume creator
 	partls			- Lists partitions on Apple-partitioned hard
 				   drives or CD-ROMs
@@ -71,9 +76,10 @@ Included files:
 You need to provide:
 
 	1) Patience.
-	2) a ROM file called "ROM", "ROM.01" or "ROM.03" in the KEGS directory.
-		It can be either from a ROM 01 (131072 bytes long) or from a
-		ROM 03 machine (262144 bytes long.)
+	2) a ROM file called "ROM", "ROM.01" or "ROM.03" in the KEGS directory
+		(or in your home directory).  It can be either from a ROM 01
+		(131072 bytes long) or from a ROM 03 machine (262144 bytes
+		long.)
 	3) A disk image to boot.  This can be either "raw" format or 2IMG.
 		See discussion below.  GS/OS would be best.
 
@@ -87,10 +93,11 @@ or fc/0000 - ff/ffff from a ROM 03 GS, and put that in a file called
 Running KEGS:
 ------------
 
-The distribution comes in 3 parts: a source-only distribution (kegs.xxx.tar.gz),
-along with two binary distributions for Mac and Windows.
+The distribution comes with the full source code for all platforms in
+the src/ directory, the Windows executable as kegswin.exe, and the Mac OS X
+executable as KEGSMAC.
 
-See the README.compile file for more info about compiling for Linux.
+See the README.compile.txt file for more info about compiling for Linux.
 
 On all platforms except the Mac, you must start KEGS from a terminal
 window.  KEGS will open a new window and use the window you started it from
@@ -98,50 +105,68 @@ as a "debug" window.
 
 On a MAC, you need to place the "config.kegs" file someplace where KEGS
 can find it.  The simplest place is in your home directory, so copy it there
-with the Finder (or using the Terminal).
+with the Finder (or using the Terminal).  You can also make the directory
+Library/KEGS from your home directory, and then place config.kegs there
+along with the ROM file.  You do not need a starting config.kegs file
+on a Mac--KEGS will offer to make it for you if it cannot find one.
 
 Start kegs by Double-clicking the KEGSMAC icon on a MAC, or by running
 the executable (kegswin on Windows, and kegs on Linux).  KEGSMAC can
-be run by the Terminal window as well (which enables access to more debug
-information) by typing: "./KEGSMAC.app/Contents/MacOS/KEGSMAC".
+be run by the Terminal window on a Mac as well (which enables access to
+more debug information) by typing: "./KEGSMAC.app/Contents/MacOS/KEGSMAC".
 
 Assuming all goes well, KEGS will then boot up but probably not find any
 disk images.  See below for how to tell KEGS what disk images to use.
 Tip: Hitting "F8" locks the mouse in the window (and hides the host cursor)
 until you hit "F8" again.
 
-Disk Images:
+Configuration Panel:
+-------------------
+
+You enter the Configuration panel by pressing F4 at any time.  You tell
+KEGS what disk images to use through the Configuration panel.  (If KEGS
+couldn't find a ROM file, you will be forced into the Configuration
+Panel mode until you select a valid ROM file).
+
+To select a ROM file, select "ROM File Selection" and then select your
+ROM file.  If you were not forced into the panel at startup, the KEGS
+found one and you can skip this step.
+
+Disk Images
 -----------
 
-You tell KEGS what disk images to use through the Configuration panel.
+The primary use of the Configuration Panel is to select disk images.  To
+change disk images being used, select "Disk Configuration".  Each slot
+and drive that can be loaded with an image is listed.  "s5d1" means slot
+5, drive 1.  Slot 5 devices are 3.5" 800K disks, and slot 6 devices are
+5.25" 140K disks.  Slot 7 devices are virtual hard drives, and can be
+any size at all (although ProDOS-formatted images should be less than
+32MB).
 
-You enter the Configuration panel by pressing F4 at any time.  Then select,
-"Disk Configuration".  Each slot and drive that can be loaded with an image
-is listed.  "s5d1" means slot 5, drive 1.  Slot 5 devices are 3.5" 800K disks,
-and slot 6 devices are 5.25" 140K disks.  Slot 7 devices are virtual hard
-drives, and can be any size at all (although ProDOS-formatted drives
-should be less than 32MB).
-
-Just use the arrow keys to navigate to the device entry to change,
-and then select it by pressing Return.  A scrollable file selection
-interface is presented, letting you located your image files.  To
-save navigation, you can press Tab to toggle between entering a path
-manually, and using the selector. Press Return on ".." entries to go up
-a directory level.  When you find the image you want, just press Return.
+Just use the arrow keys to navigate to the device entry to change, and
+then select it by pressing Return.  A scrollable file selection
+interface is presented, letting you locate your image files.  To quickly
+jump to a particular path, you can press Tab to toggle between entering
+a path manually, and using the file selector. Press Return on ".."
+entries to go up a directory level.  When you find the image you want,
+just press Return.
 
 If the image has partitions that KEGS supports, another selection
 dialog will have you select which partition to mount.  You will probably
-only have partitions on direct devices you mount.  For instance, on a
-Mac, /dev/disk1 is usually the CDROM drive.
+only have partitions on direct devices you mount (or on a Mac, of .dmg
+images of CDs).  For instance, on a Mac, /dev/disk1 can sometimes be the
+CDROM drive.
 
-KEGS can handle "raw", .dsk, .po, 2IMG, 5.25" ".nib" images, some Mac
+KEGS can handle "raw", .dsk, .po, 2IMG, 5.25" ".nib" images, most Mac
 Diskcopy images and partitioned images.  The .dsk and .po formats you often
 find on the web are really "raw" formats, and so they work fine.  KEGS uses
 the host file permissions to encode the read/write status of the image.
+KEGS can open any image file compressed with gzip (with the extension ".gz")
+automatically as a read-only disk image.
 
 An image is the representation of an Apple IIgs disk, but in a file on
 your computer.  For 3.5" disks, for example, a raw image would be exactly
-800K bytes long (819200 bytes).  KEGS intercepts the emulated GS accesses to
+800K bytes long (819200 bytes).  KEGS directs the emulated GS accesses to
 the image, and does the correct reads and writes of the Unix file instead.
 
 To do "useful" things with KEGS, you need to get a bootable disk image.
@@ -150,21 +175,36 @@ get Apple IIgs System 6.  Unfortunately, Apple now only has .sea files which
 are executable files for Macintosh only.  You need a macintosh to execute
 those programs, which creates Disk Copy image files with no special extensions
 (and with spaces in the names).  Once you get those files back to your
-host machine, you can use them by listing them in kegs_conf.
+host machine, you can use them by selecting them from the Configuration Panel.
+
+You can also get Apple II programs in ".dsk" format from a variety of
+sites on the internet, and these should all work on KEGS as well.
 
 KEGS also supports partitioned devices.  For instance, if you have a CD-ROM
 on your computer, just pop an Apple II CD in, and KEGS can mount it, if
-you have a Unix-base system (Linux, any Unix, and Mac OS X).
+you have a Unix-based system (Linux, any Unix, and Mac OS X).
 
 If you're on a Mac, be careful letting KEGS use your HFS partitions--
-GSOS has many HFS bugs when it is writing.
+GSOS has many HFS bugs when it is writing.  Also avoid having KEGS access
+an image which have mounted on your Mac at the same time (always unmount
+it from your Mac before letting KEGS access it)!
 
-If you do not have any disk mounted in s7d1, KEGS will jump into BASIC.
+If you do not have any disk mounted in s7d1, KEGS will jump into the monitor.
+To boot slot 6 (or slot 5), use the Apple IIgs Control Panel by pressing
+Ctrl-Command-ESC.
 
 Support for 5.25" nibblized images is read-only for now (since the
-format is kinda simplistic, it's tricky for KEGS to write to it).
-Just mount your image, like "disk.nib" in the kegs_conf file like
-any .dsk or .po image.
+format is kinda simplistic, it's tricky for KEGS to write to it since KEGS
+has more information than fits in that format).  Just select your image,
+like "disk.nib" in the kegs_conf file like any .dsk or .po image.
+
+In addition to changing disks, you can also just "eject" and image by
+moving the cursor to select that slot/drive and then press "E".  The
+emulated IIgs will immediately detect changes to s5d1 and s5d2.
+
+Care should be taken when changing images in slot 7--KEGS does not notify
+GSOS that images have changed (or been ejected), and so it's best to make
+changes when GSOS is not running.
 
 
 Key summary:
@@ -180,8 +220,8 @@ F7:	Toggle fast_disk_emul on/off
 F8:	Toggle pointer hiding on/off.
 F9:	Invert the sense of the joystick.
 Shift-F9: Swap x and y joystick/paddle axes.
-F10:	Attempt to change the a2vid_palette (only useful on 8-bit color display)
-F11:	Full screen mode (does not do anything yet).
+F10:	Attempt to change the a2vid_palette (only useful on 256-color displays)
+F11:	Full screen mode (only on Mac OS X).
 F12:	Alias of Pause/Break which is treated as Reset
 
 F2, Alt_R, Meta_r, Menu, Print, Mode_switch, Option:   Option key
@@ -202,35 +242,15 @@ KEGS hides the host cursor automatically and enables special tracking
 which forces the emulated cursor to follow the host cursor.  If this doesn't
 work right under some program, just press F8 for better compatibility.
 
-The default joystick is the mouse position.  Upper left is 0,0.  Lower right
-is 255,255.  Press Shift-F9 to swap the X and Y axes.  Press F9 to reverse
-the sense of both paddles (so 0 becomes 255, etc).  Swapping and
-reversing are convenient with paddle-based games like "Little Brick Out"
-so that the mouse will be moving like the paddle on the screen.  "Little
-Brick Out" is on the DOS 3.3 master disk.  The joystick does not work
-properly if the pointer is constrained in the window.
-
-If you have a real joystick on Linux, start KEGS with "-joystick" and 
-you should be able to use it.  Real joysticks should also work on Windows.
-
-The left mouse button is the mouse button for KEGS.  The right mouse
-button (if you have it) or F6 toggles between four speed modes.  Mode 0
-(the default) means run as fast as possible.  Mode 1 means run at 1MHz.
-Mode 2 means run at 2.8MHz.  Mode 3 means run at 8.0MHz (about the speed
-of a ZipGS accelerator).  Most Apple //e (or earlier) games need to be
-run at 1MHz.  Many Apple IIgs demos must run at 2.8MHz or they crash.  Try
-running ornery programs at 2.8MHz.  3200 pictures generally only display
-correctly at 2.8MHz or sometimes 8.0MHz.
-
 The middle mouse button or Shift-F6 causes KEGS to stop emulation, and enter
 the debugger.  You can continue with "g" then return in the debug window.
 You can also disassemble memory, etc.  The section "Debugging KEGS"
 above describes the debugger interface a little more.
 
 KEGS has no pop-up menus or other interactive interfaces (other than
-the debug window).  Input to the debug window is only acted upon when
-the emulation is stopped by hitting a breakpoint or pressing the right-most
-mouse button.
+the debug window, and the occasional error dialogs on Mac OS X).  Input to
+the debug window is only acted upon when the emulation is stopped
+(Shift-F6, middle mouse button, or hitting a breakpoint).
 
 Quitting KEGS:
 -------------
@@ -239,6 +259,86 @@ Just close the main KEGS window, and KEGS will exit cleanly.  Or you
 can select Quit from the menu.  Or enter ctrl-c in the debugger window.
 Or press the middle-mouse button in the emulation window, and then type
 "q" return in the debug window.
+
+Command/Option keys:
+-------------------
+
+If you have a keyboard with the special Windows keys, you can
+use them as the command/option keys.  For those without those keys,
+there are several alternatives.
+
+The following keys are Option (closed-apple) (not all keyboards have all
+keys):  F2, Meta_R, Alt_R, Cancel, Print_screen, Mode_switch, Option,
+or the Windows key just to the right of the spacebar.  The following keys are
+Command (open-apple):  F1, Meta_L, Alt_L, Menu, Scroll_lock, Command,
+the Windows key left of the spacebar, and the Windows key on the far right
+that looks like a pull-down menu.  You can use F1 and F2 if you cannot make
+anything else work (especially useful if your OS is intercepting some
+Alt or Command key sequences).
+
+If you can't get any of these to work on your machine, let me know.
+Note that X Windows often has other things mapped to Meta- and Alt-
+key sequences, so they often don't get passed through to KEGS.  So it's
+best to use another key instead of Alt or Meta.
+
+The joystick/paddle buttons are just the Command and Option keys.
+
+
+Reset:
+-----
+
+The reset key is Pause/Break or F12.  You must hit it with Ctrl to get it to
+take effect (just like a real Apple IIgs).  Ctrl-Command-Reset
+forces a reboot.  Ctrl-Command-Option-Reset enters selftests.
+Selftests will pass if you force speed to 2.8MHz using the middle
+button or F6 (and also set Enable Text Page 2 shadow = Disabled for ROM 01).
+Watch out for ctrl-shift-Break--it will likely kill an X Windows session.
+Also note that the Unix olvwm X window manager interprets ctrl-F12 and will
+not pass it on to KEGS--you'll need to use Break for reset in that case.
+
+Full Screen mode (MAC OS X ONLY):
+----------------
+
+KEGS can run in full screen mode--which is especially useful when letting
+small kids use KEGS (but it is not really a lock, so do not let a 2 year
+old bang on the keyboard while running KEGS).
+
+Full Screen mode is toggled with F11 (or Ctrl-F11, since Expose on a Mac
+is intercepting F11).  If KEGS stops in the debugger for any reason,
+full screen mode is toggled off automatically.
+
+
+Joystick Emulation (Mouse, Keypad, or real native joystick):
+------------------
+
+The default joystick is the mouse position.  Upper left is 0,0.  Lower right
+is 255,255.  Press Shift-F9 to swap the X and Y axes.  Press F9 to reverse
+the sense of both paddles (so 0 becomes 255, etc).  Swapping and
+reversing are convenient with paddle-based games like "Little Brick Out"
+so that the mouse will be moving like the paddle on the screen.  "Little
+Brick Out" is on the DOS 3.3 master disk.  The joystick does not work
+properly if the pointer is constrained in the window.
+
+You can also select from a "Keypad Joystick" or a real joystick from
+the Configuration panel.  Press return on the "Joystick Configuration"
+entry, and then select between Mouse Joystick, Keypad Joystick, or one
+of two native joysticks.  The Keypad Joystick uses your keypad number
+keys as a joystick, where keypad 7 means move to the upper left, and
+keypad 3 means move to the lower right.  Pressing multiple keys together
+averages the results, allowing finer control than just 8 directions.
+Also, joystick scaling is selectable here for games which require
+a greater range of motion to work correctly, along with trim adjustment
+which moves the centering point.  Adjusting scaling usually means you
+will need to adjust the trim as well.
+
+The left mouse button is the mouse button for KEGS.  The right mouse
+button (if you have it) or F6 toggles between four speed modes.  Mode 0
+(the default) means run as fast as possible.  Mode 1 means run at 1MHz.
+Mode 2 means run at 2.8MHz.  Mode 3 means run at 8.0MHz (about the speed
+of a ZipGS accelerator).  Most Apple //e (or earlier) games need to be
+run at 1MHz.  Many Apple IIgs demos must run at 2.8MHz or they will not
+operate correctly.  Try running ornery programs at 2.8MHz.  3200 pictures
+generally only display correctly at 2.8MHz or sometimes 8.0MHz.
 
 
 Debugging KEGS:
@@ -272,6 +372,10 @@ type:
 
 e1/0010B
 
+The format is "bank/address" then "B", where the B must be in caps and
+the address must use lower-case hex.  For Apple IIe programs, just use a
+bank of 0.
+
 To list all breakpoints, just type 'B' with no number in front of it.
 To delete a breakpoint, enter its address followed by 'D', so
 
@@ -296,27 +400,17 @@ watchpoints).
 Frederic Devernay has written a nice help screen available in the
 debugger when you type "h".
 
+Useful locations for setting breakpoints:
+0/3f0B		- Break handler
+0/c000B		- Keyboard latch, programs read keys from this address
+
+
+
 KEGS command-line option summary:
 --------------------------------
 
--mem {mem_amt}: KEGS will use mem_amt as the amount of expansion RAM in
-	the IIgs.  This memory is in addition to the 256KB on a ROM 01
-	motherboard, or 1MB on a ROM 03.  The memory is in bytes,
-	and it will be rounded down to the nearest 64KB.  "-mem 0x800000"
-	will use 8MB of expansion RAM (the default).
--badrd:	Causes KEGS to halt on any access to invalid memory addresses.
-	Useful for debugging.  By default, KEGS allows reads to invalid
-	memory since the Finder does some (especially when you open the
-	About window, and then close it).  But KEGS warns you about these
-	accesses in the debug window.  In general, these warnings
-	indicate buggy programs.  If the warnings get severe, it's
-	a good sign you should quit KEGS and start over before the
-	emulated program crashes.  -badrd would be the default for KEGS
-	if it wasn't for the Finder's About window's problem.
--ignbadacc:	Causes KEGS to allow reads & writes to invalid memory
-	addresses without printing any warnings.  Useful for running
-	extremely buggy programs so you don't have to see all the warning
-	messages scroll by.
+There are others, but the Configuration panel provides a better way to
+set them so they are no longer listed here.
 -skip:	KEGS will "skip" that many screen redraws between refreshes.
 	-skip 0 will do 60 frames per second, -skip 1 will do 30 fps,
 	-skip 5 will do 10 fps.
@@ -340,7 +434,6 @@ X-Windows/Linux options
 -24:	KEGS will only look for a 24-bit X-Window display.
 -display {machine:0.0}: Same as setting the environment variable DISPLAY.
 	Sends X display to {machine:0.0}.
--joystick: Will use /dev/js0 as the joystick.
 -noshm:	KEGS will not try to used shared memory for the X graphics display.
 	This will make KEGS much slower on graphics-intensive tasks,
 	by as much as a factor of 10!  By default, -noshm causes an
@@ -348,40 +441,9 @@ X-Windows/Linux options
 	default by specifying a -skip explicitly.
 
 
-Command/Option keys:
--------------------
 
-If you have a workstation keyboard with the new Windows keys, you can
-use them as the command/option keys.  This is what I use.  Since many people
-don't have the PC keyboard, there are several alternatives.
-
-The following keys are Option (closed-apple) (not all keyboards have all
-keys):  F2, Meta_R, Alt_R, Cancel, Print_screen, Mode_switch, Option,
-or the Windows key just to the right of the spacebar.  The following keys are
-Command (open-apple):  F1, Meta_L, Alt_L, Menu, Scroll_lock, Command,
-the Windows key left of the spacebar, and the Windows key on the far right
-that looks like a pull-down menu.  You can use F1 and F2 if you cannot make
-anything else work.
-
-If you can't get any of these to work on your machine, let me know.
-Note that X Windows often has other things mapped to Meta- and Alt-
-key sequences, so they often don't get passed through to KEGS.  So it's
-best to use another key instead of Alt or Meta.
-
-The joystick/paddle buttons are just the Command and Option keys.
-
-Reset:
------
-
-The reset key is Pause/Break or F12.  You must hit it with Ctrl to get it to
-take effect (just like a real Apple IIgs).  Ctrl-Command-Reset
-forces a reboot.  Ctrl-Command-Option-Reset enters selftests.
-Selftests will pass if you force speed to 2.8MHz using the middle
-button.  Watch out for ctrl-shift-Break--it will likely kill your
-X Windows session.
-
-Control Panel:
--------------
+Apple IIgs Control Panel:
+------------------------
 
 You can get to the Apple IIgs control panel (unless some application
 has locked it out) using Ctrl-Command-ESC.
@@ -453,18 +515,12 @@ to $E0.
 Details on config.kegs and disk images
 --------------------------------------
 
-The file "config.kegs" describes the images KEGS will use.  The sample
-file has all the lines commented out with '#' to show sample uses.
-Remember, KEGS will boot s7d1 (unless you've changed that using the
-Apple IIgs control panel), so you must put an image in that slot.
+The file "config.kegs" describes the images KEGS will use.  Although you
+can edit the file manually, in general you can use the Configuration Panel
+to make all the changes you need.  This information is for reference.
 
-Changing disks in slot 7 does not work, but you can move around
-disks in slots 5 and 6.  This allows you to "eject" disks and change them.
-This is especially useful for multi-disk 5.25" programs.
-
-KEGS uses the Unix permissions on raw disk images to decide how to load
-it into the emulator.  If the file is unreadable, it cannot load the
-image (duh).
+KEGS by default will boot s7d1 (unless you've changed that using the
+Apple IIgs control panel), so you should put an image in that slot.
 
 KEGS, by default, runs the IWM (3.5" and 5.25" disks) emulation in an
 "approximate" mode, called "fast_disk_emul".  In this mode, KEGS
@@ -544,14 +600,14 @@ equivalent speed.  Many games will be unplayable at the unlimited
 setting.  Setting the IIgs control panel speed to "slow" will slow down
 to 1MHz.
 
-Sound output has an interesting relationship to KEGS timing.  KEGS must
+Sound output has an important relationship to KEGS timing.  KEGS must
 play one second of sound per second of emulated time.  Normally, this
 works out exactly right.  But as noted above, if KEGS can't maintain the
 needed speed, it extends the emulated second.  If it extends the second
 to 1.4 real seconds, that means KEGS only produces 1.0 second of sound
 data every 1.4 seconds--the sound breaks up!
 
-In all cases, 1MHz to KEGS is 1.024MHz.  And 2.8MHz to KEGS is 2.52MHz
+In all cases, 1MHz to KEGS is 1.024MHz.  And 2.8MHz to KEGS is 2.56MHz
 (trying to approximate the slowdown causes by memory refresh on a real
 Apple IIgs).  It's just easier to say 1MHz and 2.8MHz.
 
@@ -673,7 +729,9 @@ useful for some games.
 KEGS:  What works:
 -----------------
 
-Basically, just about every Apple II program works.
+Basically, just about every Apple II program works.  See the file
+README.a2.compatibility for directions on how to make certain games/programs
+work.
 
 KEGS is EXTREMELY compatible.  But, I haven't tested everything.  Let
 me know if you find a program which is not working correctly.
@@ -695,9 +753,6 @@ the above lets it work fine. This seems to be a bug in the demo.
 
 KEGS bugs:
 ---------
-
-KEGS's serial port emulation is very limited now, and only for
-adventurous souls.
 
 On a ROM03, KEGS makes a patch to the ROM image (inside emulation, not
 to the Unix file) to fix a bug in the ROM code.  Both ROM01 and ROM03
@@ -726,38 +781,69 @@ in the debug window.  However, when sound restarts, it sometimes
 If your display is not using shared memory, audio defaults to off unless
 you override it with "-audio 1".
 
-SCC emulation:
--------------
+SCC (Serial Port) emulation:
+---------------------------
 
 KEGS emulates the two serial ports on a IIgs as being two Unix sockets.
 Port 1 (printer port) is at socket address 6501, and port 2 (modem)
 is at socket address 6502.
 
-In KEGS, from APPLESOFT, if you PR#1, all output will then be sent to
-socket port 6501.  You can see it by connecting to the port using
-any method you like, but a simple, easy way is to use telnet.  In
-another Unix window, do: "telnet localhost 6501" and then you
-will see all the output going to the "printer".
+By default, slot 1 is emulated using a simple receive socket, and slot 2
+emulates a Virtual Modem.
+
+A Virtual Modem means KEGS acts as if a modem is on the serial port
+allowing Apple II communcation programs to fully work, but connected to
+internet-enabled sockets.  KEGS emulates a "Hayes- Compatible" modem,
+meaning it accepts "AT" commands.  You can use KEGS to connect to free
+telnet-BBSs, or run a BBS program on KEGS and become a telnet BBS yourself.
+
+The two main AT commands are: ATDT for dialing out, and ATA for receiving
+calls.  To dial out, enter "ATDThostname", or for example,
+"ATDTboycot.no-ip.com" (which is down at the moment, unfortunately).
+You can also enter an IP address, like "ATDT127.0.0.1".  On a Mac, to
+create a telnet server to allow telnet connections (do not use over the
+internet, but on a private network behind a firewall, this should be
+fine), in a Terminal window type: "sudo /usr/libexec/telnetd -debug".
+You must then enable telnet on port 23 through your Mac OS X Firewall in
+the System Preferences->Sharing->Firewall page (just add port 23 as
+open--you'll need to use the "New..." button and then select Other for
+Port Name, and enter Port Number as 23). Then from KEGS in a
+communications program, do "ATDT127.0.0.1", and then log-in to your Mac.
+
+KEGS also accepts incoming "calls".  Start KEGS, and initialize the
+Virtual Modem with some AT command (ATZ resets all state, and is a useful
+start).  KEGS now has a socket port open, 6502 for slot 2, which you
+can connect to using any telnet program.  In a Terminal window, then
+type "telnet 127.0.0.1 6502" and you will connect to KEGS.  The Virtual
+Modem then starts printing "RING" every 2 seconds until you answer with
+"ATA".  You are now connected.  I have not tried BBS programs, but have
+made connections with ProTERM.
+
+On Windows XP SP2, when KEGS tries to open this incoming socket, you'll
+need to enable it and click Unblock to the dialog that Windows pops up.
+If you do not want incoming connections, you can block it instead.
+
+Once connected, you can go back to talking to the Virtual Modem by
+pressing + three times quickly (+++), and then not type anything for a second.
+This goes back to the AT-command mode.  You can now "ATH" to hang up, or
+"ATO" to go back online.
+
+On Windows, the socket code is very preliminary and there are problems
+receiving connections.
+
+KEGS also supports an older, simpler socket interface, which it defaults
+to using on slot 1.  In KEGS, from APPLESOFT, if you PR#1, all output will
+then be sent to socket port 6501.  You can see it by connecting to the
+port using telnet.  In another terminal window, do: "telnet localhost 6501"
+and then you will see all the output going to the "printer".
 
 Under APPLESOFT, you can PR#1 and IN#1.  This gets input from the
 socket also.  You can type in the telnet window, it will be sent on
-to the emulated IIgs.  Telnet on Unix defaults to "line mode" which
-buffers keys you type until you hit return.  This can be a bit distracting,
-and can be disabled by hitting Ctrl-] and then "mode char".  This
-causes a few {{ chars to show up in KEGS--just ignore this for now.
-You may want to go to the F4 Config Panel and set "mask off high bit"
-for serial port accesses to make PR#2 work a little nicer.
+to the emulated IIgs.  You may want to go to the F4 Config Panel and set
+"mask off high bit" for serial port accesses to make PR#1 work a little nicer.
 
-That's about it.  Proterm and Appleworks GS can talk to the modem port
-fine, but it's limited in its usefulness.  I have printed from
-Printshop, but it's a bit pointless since it's sending out Imagewriter
-printer codes which doesn't look like anything.  You can "print" from
-BASIC by using something like PR#1 in KEGS and
+You can "print" from BASIC by using something like PR#1 in KEGS and
 "telnet localhost 6501 | tee file.out" in another window.
-
-Feel free to let me know what doesn't work, but a lot is known not
-to work.  GNO's tty interface may work, but I'm having problems
-testing it.
 
 
 KEGS status area:
@@ -875,7 +961,7 @@ Fix the Ensoniq bugs to make sound more accurate.
 If you have any problems/questions/etc., just let me know.
 
 Special thanks to Jeff Smoot of climbingwashington.com for letting me use
-the picture of a keg in the Mac icon.
+the picture of a keg for the Mac icon.
 
 Kent Dickey
 kadickey@alumni.princeton.edu
@@ -956,21 +1042,9 @@ KEGS boots s7d1 by default.  You can change this using the emulated IIgs
 control panel, just like a real Apple IIgs.  KEGS emulates a IIgs with
 two 5.25" drives in slot 6, two 3.5" drives in slot 5, and up to 32
 "hard drives" in slot 7.  However, the current Configuration Panel only
-lets you set through s7d11.
-
-Config.kegs file
-----------------
-
-KEGS saves your preferences and disk image names in the file config.kegs.
-KEGS searches for this file in the directory KEGS was started in, in
-your home directory, or in the Resources directory (on a Mac) of the app.
-It needs to find one someplace, so putting it in your home directory is
-usually the easiest.
-
-The config.kegs file is a simple text file.  You need to quit KEGS before
-editing the file.  The BRAM data is also kept in this file, with separate
-BRAM contents for ROM 01 and ROM 03 (so if you switch ROM versions, you
-don't lose all your BRAM preferences).
+lets you set through s7d11.  ProDOS 8 can access disks up to s7d8, but GSOS
+has no limit, so it's best to put HFS images past s7d8 in order to leave
+more slots for ProDOS images.
 
 If you're trying to use a real host device (CD-ROM, or hard drive, or
 floppy), you should make the permissions on the /dev/disk* files something
@@ -982,8 +1056,6 @@ You can do this on a Mac with:
 
 sudo chmod 644 /dev/disk2
 
-Running KEGS as root is NOT recommended.
-
-The s6d* and s5d* drives support disk swapping and disk ejecting, but
-the s7d* drives do not.
+DO NOT RUN KEGS AS ROOT.  It is not designed for this and it's almost certain
+problems will ensue.
 

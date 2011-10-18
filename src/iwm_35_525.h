@@ -1,12 +1,12 @@
 
 #ifdef INCLUDE_IWM_RCSID_C
-const char rcsdif_iwm_35_525_h[] = "@(#)$KmKId: iwm_35_525.h,v 1.9 2002-11-14 01:03:16-05 kadickey Exp $";
+const char rcsdif_iwm_35_525_h[] = "@(#)$KmKId: iwm_35_525.h,v 1.14 2004-12-01 19:45:02-05 kentd Exp $";
 #endif
 
 int
 IWM_READ_ROUT (Disk *dsk, int fast_disk_emul, double dcycs)
 {
-	Track	*trk;
+	Trk	*trk;
 	double	dcycs_last_read;
 	int	pos;
 	int	pos2;
@@ -30,11 +30,27 @@ IWM_READ_ROUT (Disk *dsk, int fast_disk_emul, double dcycs)
 
 	qtr_track = dsk->cur_qtr_track;
 
-	trk = &(dsk->tracks[qtr_track]);
-	track_len = trk->track_len;
+#if IWM_DISK_525
+	qtr_track = qtr_track & -4;	/* round to nearest whole trk! */
+#endif
+
+	trk = 0;
+	track_len = 0;
+	if(dsk->trks) {
+		trk = &(dsk->trks[qtr_track]);
+		track_len = trk->track_len;
+	}
 
 	dcycs_last_read = dsk->dcycs_last_read;
 	dcycs_passed = dcycs - dcycs_last_read;
+
+	cycs_passed = (int)dcycs_passed;
+
+	if(track_len == 0) {
+		ret = (cycs_passed & 0x7f) + 0x80;
+		iwm_printf("Reading c0ec, track_len 0, returning %02x\n", ret);
+		return ret;
+	}
 
 	pos = dsk->nib_pos;
 	if(pos >= track_len) {
@@ -43,11 +59,6 @@ IWM_READ_ROUT (Disk *dsk, int fast_disk_emul, double dcycs)
 		pos = 0;
 	}
 
-	cycs_passed = (int)dcycs_passed;
-
-	if(track_len == 0) {
-		return (cycs_passed & 0x7f) + 0x80;
-	}
 	size = trk->nib_area[pos];
 
 	while(size == 0) {
@@ -207,9 +218,9 @@ IWM_WRITE_ROUT (Disk *dsk, word32 val, int fast_disk_emul, double dcycs)
 	int	sdiff;
 	int	prev_bits;
 
-	if(dsk->fd < 0) {
+	if(dsk->fd < 0 || dsk->trks == 0) {
 		halt_printf("Tried to write to type: %d, drive: %d, fd: %d!\n",
-			IWM_DISK_525, dsk->drive, dsk->fd);
+			IWM_DISK_525, dsk->drive, dsk->fd, dsk->trks);
 		return;
 	}
 

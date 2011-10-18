@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_scc_windriver_c[] = "@(#)$KmKId: scc_windriver.c,v 1.3 2003-09-20 15:05:15-04 kentd Exp $";
+const char rcsid_scc_windriver_c[] = "@(#)$KmKId: scc_windriver.c,v 1.4 2004-11-19 02:00:46-05 kentd Exp $";
 
 /* This file contains the Win32 COM1/COM2 calls */
 
@@ -151,7 +151,7 @@ scc_serial_win_change_params(int port)
 }
 
 void
-scc_serial_win_fill_readbuf(int port, double dcycs)
+scc_serial_win_fill_readbuf(int port, int space_left, double dcycs)
 {
 	byte	tmp_buf[256];
 	Scc	*scc_ptr;
@@ -168,7 +168,8 @@ scc_serial_win_fill_readbuf(int port, double dcycs)
 	}
 
 	/* Try reading some bytes */
-	ret = ReadFile(host_handle, tmp_buf, 256, &bytes_read, NULL);
+	space_left = MIN(256, space_left);
+	ret = ReadFile(host_handle, tmp_buf, space_left, &bytes_read, NULL);
 
 	if(ret == 0) {
 		printf("ReadFile ret 0\n");

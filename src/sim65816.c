@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.346 2004-03-23 17:26:10-05 kentd Exp $";
+const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.367 2004-11-22 02:39:26-05 kentd Exp $";
 
 #include <math.h>
 
@@ -16,13 +16,16 @@ const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.346 2004-03-23 17:26
 #include "defc.h"
 #undef INCLUDE_RCSID_C
 
+#define PC_LOG_LEN	(8*1024)
+
+
 char g_argv0_path[256] = "./";
 
 const char *g_kegs_default_paths[] = { "", "./", "${HOME}/",
+	"${HOME}/Library/KEGS/",
 	"${0}/Contents/Resources/", "/usr/local/lib/",
 	"/usr/local/kegs/", "/usr/local/lib/kegs/", "/usr/share/kegs/",
-	"/usr/share/", "/var/lib/", "/usr/lib/", "/lib/", "/etc/",
-	"/etc/kegs/", "${0}/", 0 };
+	"/var/lib/", "/usr/lib/kegs/", "${0}/", 0 };
 
 #define MAX_EVENTS	64
 
@@ -38,26 +41,18 @@ const char *g_kegs_default_paths[] = { "", "./", "${HOME}/",
 
 extern int g_stepping;
 
-extern int statereg;
+extern int g_c068_statereg;
 extern int g_cur_a2_stat;
 
-extern int wrdefram;
-extern int int_crom[8];
+extern int g_c08x_wrdefram;
+extern int g_c02d_int_crom;
 
-extern int shadow_text;
-
-extern int shadow_reg;
-extern int speed_fast;
-extern word32 g_slot_motor_detect;
+extern int g_c035_shadow_reg;
+extern int g_c036_val_speed;
 
 extern int g_c023_val;
-extern int c023_1sec_int_irq_pending;
-extern int c023_scan_int_irq_pending;
-extern int c041_en_25sec_ints;
-extern int c041_en_vbl_ints;
+extern int g_c041_val;
 extern int g_c046_val;
-extern int c046_25sec_irq_pend;
-extern int c046_vbl_irq_pending;
 extern int g_zipgs_reg_c059;
 extern int g_zipgs_reg_c05a;
 extern int g_zipgs_reg_c05b;
@@ -71,9 +66,6 @@ extern int defs_instr_end_16;
 extern int op_routs_start;
 extern int op_routs_end;
 
-extern int updated_mod_latch;
-extern int capslock_key_down;
-
 Engine_reg engine;
 extern word32 table8[];
 extern word32 table16[];
@@ -83,7 +75,7 @@ extern byte doc_ram[];
 extern int g_iwm_motor_on;
 extern int g_fast_disk_emul;
 extern int g_slow_525_emul_wr;
-extern int g_apple35_sel;
+extern int g_c031_disk35;
 extern int g_config_control_panel;
 
 extern int g_audio_enable;
@@ -94,7 +86,8 @@ void U_STACK_TRACE();
 double	g_fcycles_stop = 0.0;
 int	halt_sim = 0;
 int	enter_debug = 0;
-int	g_rom_version = 0;
+int	g_rom_version = -1;
+int	g_user_halt_bad = 0;
 int	g_halt_on_bad_read = 0;
 int	g_ignore_bad_acc = 1;
 int	g_ignore_halts = 1;
@@ -102,15 +95,12 @@ int	g_code_red = 0;
 int	g_code_yellow = 0;
 int	g_use_alib = 0;
 int	g_raw_serial = 1;
+int	g_iw2_emul = 0;
 int	g_serial_out_masking = 0;
+int	g_serial_modem[2] = { 0, 1 };
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "0.86";
-
-#if 0
-const double g_drecip_cycles_in_16ms = (1.0/(DCYCS_IN_16MS));
-const double g_dcycles_in_16ms = DCYCS_IN_16MS;
-#endif
+const char g_kegs_version_str[] = "0.91";
 
 #define START_DCYCS	(0.0)
 
@@ -122,7 +112,8 @@ double	g_dadjcycs = 0.0;
 
 
 int	g_wait_pending = 0;
-int	g_irq_pending = 0;
+int	g_stp_pending = 0;
+extern int g_irq_pending;
 
 int	g_num_irq = 0;
 int	g_num_brk = 0;
@@ -137,6 +128,11 @@ int	g_engine_doc_int = 0;
 int	g_testing = 0;
 int	g_testing_enabled = 0;
 
+#define MAX_FATAL_LOGS		20
+
+int	g_debug_file_fd = -1;
+int	g_fatal_log = -1;
+char *g_fatal_log_strs[MAX_FATAL_LOGS];
 
 word32 stop_run_at;
 
@@ -161,25 +157,28 @@ byte *g_dummy_memory1_ptr = 0;
 byte *g_rom_fc_ff_ptr = 0;
 byte *g_rom_cards_ptr = 0;
 
+void *g_memory_alloc_ptr = 0;		/* for freeing memory area */
+
 Page_info page_info_rd_wr[2*65536 + PAGE_INFO_PAD_SIZE];
 
-int kbd_in_end = 0;
-byte kbd_in_buf[LEN_KBD_BUF];
+Pc_log g_pc_log_array[PC_LOG_LEN + 2];
+Data_log g_data_log_array[PC_LOG_LEN + 2];
 
+Pc_log	*g_log_pc_ptr = &(g_pc_log_array[0]);
+Pc_log	*g_log_pc_start_ptr = &(g_pc_log_array[0]);
+Pc_log	*g_log_pc_end_ptr = &(g_pc_log_array[PC_LOG_LEN]);
 
-#define PC_LOG_LEN	(8*1024)
-
-Pc_log pc_log_array[PC_LOG_LEN + 2];
-
-Pc_log	*log_pc_ptr = &(pc_log_array[0]);
-Pc_log	*log_pc_start_ptr = &(pc_log_array[0]);
-Pc_log	*log_pc_end_ptr = &(pc_log_array[PC_LOG_LEN]);
+Data_log *g_log_data_ptr = &(g_data_log_array[0]);
+Data_log *g_log_data_start_ptr = &(g_data_log_array[0]);
+Data_log *g_log_data_end_ptr = &(g_data_log_array[PC_LOG_LEN]);
 
 
 void
 show_pc_log()
 {
 	FILE *pcfile;
+	Pc_log	*log_pc_ptr;
+	Data_log *log_data_ptr;
 	double	dcycs;
 	double	start_dcycs;
 	word32	instr;
@@ -188,23 +187,52 @@ show_pc_log()
 	word32	stack, direct;
 	word32	dbank;
 	word32	kpc;
+	int	data_wrap;
 	int	accsize, xsize;
 	int	num;
 	int	i;
 
-	pcfile = fopen("pc_log_out", "wt");
+	pcfile = fopen("pc_log_out", "w");
 	if(pcfile == 0) {
 		fprintf(stderr,"fopen failed...errno: %d\n", errno);
 		exit(2);
 	}
+
+	log_pc_ptr = g_log_pc_ptr;
+	log_data_ptr = g_log_data_ptr;
 #if 0
 	fprintf(pcfile, "current pc_log_ptr: %p, start: %p, end: %p\n",
 		log_pc_ptr, log_pc_start_ptr, log_pc_end_ptr);
 #endif
 
 	start_dcycs = log_pc_ptr->dcycs;
+	dcycs = start_dcycs;
+
+	data_wrap = 0;
+	/* find first data entry */
+	while(data_wrap < 2 && (log_data_ptr->dcycs < dcycs)) {
+		log_data_ptr++;
+		if(log_data_ptr >= g_log_data_end_ptr) {
+			log_data_ptr = g_log_data_start_ptr;
+			data_wrap++;
+		}
+	}
+	fprintf(pcfile, "start_dcycs: %9.2f\n", start_dcycs);
 
 	for(i = 0; i < PC_LOG_LEN; i++) {
+		dcycs = log_pc_ptr->dcycs;
+		while((data_wrap < 2) && (log_data_ptr->dcycs <= dcycs) &&
+					(log_data_ptr->dcycs >= start_dcycs)) {
+			fprintf(pcfile, "DATA set %06x = %06x (%d) %9.2f\n",
+				log_data_ptr->addr, log_data_ptr->val,
+				log_data_ptr->size,
+				log_data_ptr->dcycs - start_dcycs);
+			log_data_ptr++;
+			if(log_data_ptr >= g_log_data_end_ptr) {
+				log_data_ptr = g_log_data_start_ptr;
+				data_wrap++;
+			}
+		}
 		dbank = (log_pc_ptr->dbank_kpc >> 24) & 0xff;
 		kpc = log_pc_ptr->dbank_kpc & 0xffffff;
 		instr = log_pc_ptr->instr;
@@ -214,9 +242,8 @@ show_pc_log()
 		yreg = log_pc_ptr->xreg_yreg & 0xffff;;
 		stack = (log_pc_ptr->stack_direct >> 16) & 0xffff;;
 		direct = log_pc_ptr->stack_direct & 0xffff;;
-		dcycs = log_pc_ptr->dcycs;
 
-		num = log_pc_ptr - log_pc_start_ptr;
+		num = log_pc_ptr - g_log_pc_start_ptr;
 
 		accsize = 2;
 		xsize = 2;
@@ -234,8 +261,8 @@ show_pc_log()
 
 		do_dis(pcfile, kpc, accsize, xsize, 1, instr);
 		log_pc_ptr++;
-		if(log_pc_ptr >= log_pc_end_ptr) {
-			log_pc_ptr = log_pc_start_ptr;
+		if(log_pc_ptr >= g_log_pc_end_ptr) {
+			log_pc_ptr = g_log_pc_start_ptr;
 		}
 	}
 
@@ -380,7 +407,7 @@ get_memory_io(word32 loc, double *cyc_ptr)
 	}
 
 	g_code_yellow++;
-	if(g_ignore_bad_acc) {
+	if(g_ignore_bad_acc && !g_user_halt_bad) {
 		/* print no message, just get out.  User doesn't want */
 		/*  to be bothered by buggy programs */
 		return 0;
@@ -389,7 +416,7 @@ get_memory_io(word32 loc, double *cyc_ptr)
 	printf("get_memory_io for addr: %06x\n", loc);
 	printf("stat for addr: %06x = %p\n", loc,
 				GET_PAGE_INFO_RD((loc >> 8) & 0xffff));
-	set_halt(g_halt_on_bad_read);
+	set_halt(g_halt_on_bad_read | g_user_halt_bad);
 
 	return 0;
 }
@@ -498,7 +525,7 @@ set_memory_io(word32 loc, int val, double *cyc_ptr)
 		return;
 	}
 
-	if(g_ignore_bad_acc) {
+	if(g_ignore_bad_acc && !g_user_halt_bad) {
 		/* print no message, just get out.  User doesn't want */
 		/*  to be bothered by buggy programs */
 		return;
@@ -579,15 +606,14 @@ my_exit(int ret)
 void
 do_reset()
 {
-	int	i;
 
-	statereg = 0x08 + 0x04 + 0x01; /* rdrom, lcbank2, intcx */
+	g_c068_statereg = 0x08 + 0x04 + 0x01; /* rdrom, lcbank2, intcx */
+	g_c035_shadow_reg = 0;
 
-	wrdefram = 1;
-	for(i = 1; i < 7; i++) {
-		int_crom[i] = 0;
-	}
-	int_crom[7] = 0;
+	g_c08x_wrdefram = 1;
+	g_c02d_int_crom = 0;
+	g_c023_val = 0;
+	g_c041_val = 0;
 
 	engine.psr = (engine.psr | 0x134) & ~(0x08);
 	engine.stack = 0x100 + (engine.stack & 0xff);
@@ -596,6 +622,7 @@ do_reset()
 	engine.xreg &= 0xff;
 	engine.yreg &= 0xff;
 	g_wait_pending = 0;
+	g_stp_pending = 0;
 
 
 	video_reset();
@@ -605,6 +632,8 @@ do_reset()
 	sound_reset(g_cur_dcycs);
 	setup_pageinfo();
 	change_display_mode(g_cur_dcycs);
+
+	g_irq_pending = 0;
 
 	engine.kpc = get_memory16_c(0x00fffc, 0);
 
@@ -665,14 +694,18 @@ check_engine_asm_defines()
 }
 
 byte *
-memalloc_align(int size, int skip_amt)
+memalloc_align(int size, int skip_amt, void **alloc_ptr)
 {
 	byte	*bptr;
 	word32	addr;
 	word32	offset;
 
 	skip_amt = MAX(256, skip_amt);
-	bptr = malloc(size + skip_amt);
+	bptr = calloc(size + skip_amt, 1);
+	if(alloc_ptr) {
+		/* Save allocation address */
+		*alloc_ptr = bptr;
+	}
 
 	addr = PTR2WORD(bptr) & 0xff;
 
@@ -681,11 +714,7 @@ memalloc_align(int size, int skip_amt)
 
 	offset = ((addr + skip_amt - 1) & (~0xff)) - addr;
 
-	bptr += offset;
-
-	/* Gilles Tschopp recommended zeroing memory, this is a good idea */
-	memset(bptr, 0, size);
-	return bptr;
+	return (bptr + offset);
 }
 
 void
@@ -693,9 +722,15 @@ memory_ptr_init()
 {
 	word32	mem_size;
 
+	/* This routine may be called several times--each time the ROM file */
+	/*  changes this will be called */
 	mem_size = MIN(0xdf0000, g_mem_size_base + g_mem_size_exp);
 	g_mem_size_total = mem_size;
-	g_memory_ptr = memalloc_align(mem_size, 3*1024);
+	if(g_memory_alloc_ptr) {
+		free(g_memory_alloc_ptr);
+		g_memory_alloc_ptr = 0;
+	}
+	g_memory_ptr = memalloc_align(mem_size, 256, &g_memory_alloc_ptr);
 
 	printf("RAM size is 0 - %06x (%.2fMB)\n", mem_size,
 		(double)mem_size/(1024.0*1024.0));
@@ -807,8 +842,7 @@ kegsmain(int argc, char **argv)
 			printf("Not using X shared memory\n");
 			g_use_shmem = 0;
 		} else if(!strcmp("-joystick", argv[i])) {
-			printf("Trying to use joystick\n");
-			joystick_init();
+			printf("Ignoring -joystick option\n");
 		} else if(!strcmp("-dhr140", argv[i])) {
 			printf("Using simple dhires color map\n");
 			g_use_dhr140 = 1;
@@ -854,8 +888,7 @@ kegsmain(int argc, char **argv)
 	iwm_init();
 	config_init();
 
-	load_roms();
-	memory_ptr_init();
+	load_roms_init_memory();
 
 	init_reg();
 	clear_halt();
@@ -870,8 +903,11 @@ kegsmain(int argc, char **argv)
 	sound_init();
 
 	scc_init();
-	clk_setup_bram_version();	/* load_roms must be called first! */
 	adb_init();
+	joystick_init();
+	if(g_rom_version >= 3) {
+		g_c036_val_speed |= 0x40;	/* set power-on bit */
+	}
 
 	do_reset();
 	g_stepping = 0;
@@ -882,6 +918,27 @@ kegsmain(int argc, char **argv)
 
 	my_exit(0);
 	return 0;
+}
+
+void
+load_roms_init_memory()
+{
+	config_load_roms();
+	memory_ptr_init();
+	clk_setup_bram_version();	/* Must be after config_load_roms */
+	if(g_rom_version >= 3) {
+		g_c036_val_speed |= 0x40;	/* set power-on bit */
+	} else {
+		g_c036_val_speed &= (~0x40);	/* clear the bit */
+	}
+	do_reset();
+
+	/* if user booted ROM 01, switches to ROM 03, then switches back */
+	/*  to ROM 01, then the reset routines call to Tool $0102 looks */
+	/*  at uninitialized $e1/15fe and if it is negative it will JMP */
+	/*  through $e1/1688 which ROM 03 left pointing to fc/0199 */
+	/* So set e1/15fe = 0 */
+	set_memory16_c(0xe115fe, 0, 0);
 }
 
 void
@@ -952,7 +1009,7 @@ kegs_expand_path(char *out_ptr, const char *in_ptr, int maxlen)
 
 void
 setup_kegs_file(char *outname, int maxlen, int ok_if_missing,
-			const char **name_ptr)
+		int can_create_file, const char **name_ptr)
 {
 	char	local_path[256];
 	struct stat stat_buf;
@@ -984,20 +1041,41 @@ setup_kegs_file(char *outname, int maxlen, int ok_if_missing,
 		path_ptr++;
 	}
 
-	if(ok_if_missing) {
-		outname[0] = 0;
+	outname[0] = 0;
+	if(ok_if_missing > 0) {
 		return;
 	}
 
 	/* couldn't find it, print out all the attempts */
 	path_ptr = save_path_ptr;
-	printf("Could not find %s in any of these directories:\n", *name_ptr);
+	fatal_printf("Could not find required file \"%s\" in any of these "
+						"directories:\n", *name_ptr);
 	while(*path_ptr) {
-		printf("  %s\n", *path_ptr++);
+		fatal_printf("  %s\n", *path_ptr++);
 	}
+
+	if(can_create_file) {
+		// Ask user if it's OK to create the file
+		x_dialog_create_kegs_conf(*name_ptr);
+		can_create_file = 0;
+
+		// But clear out the fatal_printfs first
+		clear_fatal_logs();
+		setup_kegs_file(outname, maxlen, ok_if_missing,
+						can_create_file, name_ptr);
+		// It's one-level of recursion--it cannot loop since we
+		//  clear can_create_file.
+		// If it returns, then there was succes and we should get out
+		return;
+	} else if(ok_if_missing) {
+		/* Just show an alert and return if ok_if_missing < 0 */
+		x_show_alert(0, 0);
+		return;
+	}
+
 	system("pwd");
 
-	exit(2);
+	my_exit(2);
 }
 
 Event g_event_list[MAX_EVENTS];
@@ -1248,14 +1326,11 @@ Fplus	g_recip_projected_pmhz_fast;
 Fplus	g_recip_projected_pmhz_zip;
 Fplus	g_recip_projected_pmhz_unl;
 
-Fplus	*g_cur_fplus_ptr = 0;
-
 void
 show_pmhz()
 {
-	printf("Pmhz: %f, plus_1: %f, fast: %d, limit: %d\n",
-		g_projected_pmhz, g_cur_fplus_ptr->plus_1, speed_fast,
-		g_limit_speed);
+	printf("Pmhz: %f, c036:%02x, limit: %d\n",
+		g_projected_pmhz, g_c036_val_speed, g_limit_speed);
 
 }
 
@@ -1329,12 +1404,15 @@ run_prog()
 	zip_speed_0tof = g_zipgs_reg_c05a & 0xf0;
 	setup_zip_speeds();
 
-	if(g_cur_fplus_ptr == 0) {
+	if(engine.fplus_ptr == 0) {
 		g_recip_projected_pmhz_unl = g_recip_projected_pmhz_slow;
 	}
 
 	while(1) {
 		fflush(stdout);
+		if(g_config_control_panel) {
+			config_control_panel();
+		}
 
 		if(g_irq_pending && !(engine.psr & 0x4)) {
 			irq_printf("taking an irq!\n");
@@ -1344,11 +1422,11 @@ run_prog()
 
 		motor_on = g_iwm_motor_on;
 		limit_speed = g_limit_speed;
-		apple35_sel = g_apple35_sel;
+		apple35_sel = g_c031_disk35 & 0x40;
 		zip_en = ((g_zipgs_reg_c05b & 0x10) == 0);
 		zip_follow_cps = ((g_zipgs_reg_c059 & 0x8) != 0);
 		zip_speed_0tof_new = g_zipgs_reg_c05a & 0xf0;
-		fast = speed_fast || (zip_en && !zip_follow_cps);
+		fast = (g_c036_val_speed & 0x80) || (zip_en && !zip_follow_cps);
 
 		if(zip_speed_0tof_new != zip_speed_0tof) {
 			zip_speed_0tof = zip_speed_0tof_new;
@@ -1356,7 +1434,7 @@ run_prog()
 		}
 
 		iwm_1 = motor_on && !apple35_sel &&
-				(g_slot_motor_detect & 0x4) &&
+				(g_c036_val_speed & 0x4) &&
 				(g_slow_525_emul_wr || !g_fast_disk_emul);
 		iwm_25 = (motor_on && apple35_sel) && !g_fast_disk_emul;
 		faster_than_28 = fast && (!iwm_1 && !iwm_25) && zip_en &&
@@ -1381,7 +1459,6 @@ run_prog()
 			fplus_ptr = &g_recip_projected_pmhz_slow;
 		}
 
-		g_cur_fplus_ptr = fplus_ptr;
 		engine.fplus_ptr = fplus_ptr;
 
 		this_type = g_event_start.next->type;
@@ -1514,9 +1591,6 @@ run_prog()
 		if(g_stepping) {
 			break;
 		}
-		if(g_config_control_panel) {
-			config_control_panel();
-		}
 	}
 
 	if(!g_testing) {
@@ -1527,19 +1601,20 @@ run_prog()
 }
 
 void
-add_irq()
+add_irq(word32 irq_mask)
 {
-	g_irq_pending++;
+	if(g_irq_pending & irq_mask) {
+		/* Already requested, just get out */
+		return;
+	}
+	g_irq_pending |= irq_mask;
 	set_halt(HALT_EVENT);
 }
 
 void
-remove_irq()
+remove_irq(word32 irq_mask)
 {
-	g_irq_pending--;
-	if(g_irq_pending < 0) {
-		halt_printf("remove_irq: g_irq_pending: %d\n", g_irq_pending);
-	}
+	g_irq_pending = g_irq_pending & (~irq_mask);
 }
 
 void
@@ -1559,10 +1634,6 @@ take_irq(int is_it_brk)
 		g_wait_pending = 0;
 	}
 
-	if(g_irq_pending < 0) {
-		halt_printf("g_irq_pending: %d!\n", g_irq_pending);
-	}
-
 	if(engine.psr & 0x100) {
 		/* Emulation */
 		set_memory_c(engine.stack, (engine.kpc >> 8) & 0xff, 0);
@@ -1577,7 +1648,7 @@ take_irq(int is_it_brk)
 		engine.stack = ((engine.stack -1) & 0xff) + 0x100;
 
 		va = 0xfffffe;
-		if(shadow_reg & 0x40) {
+		if(g_c035_shadow_reg & 0x40) {
 			/* I/O shadowing off...use ram locs */
 			va = 0x00fffe;
 		}
@@ -1599,13 +1670,13 @@ take_irq(int is_it_brk)
 		if(is_it_brk) {
 			/* break */
 			va = 0xffffe6;
-			if(shadow_reg & 0x40) {
+			if(g_c035_shadow_reg & 0x40) {
 				va = 0xffe6;
 			}
 		} else {
 			/* irq */
 			va = 0xffffee;
-			if(shadow_reg & 0x40) {
+			if(g_c035_shadow_reg & 0x40) {
 				va = 0xffee;
 			}
 		}
@@ -1967,19 +2038,18 @@ update_60hz(double dcycs, double dtime_now)
 	g_dtime_eff_pmhz_array[prev_vbl_index] = eff_pmhz;
 
 
-	if(c041_en_vbl_ints) {
+	if(g_c041_val & C041_EN_VBL_INTS) {
 		add_event_vbl();
 	}
 
 	g_25sec_cntr++;
 	if(g_25sec_cntr >= 16) {
 		g_25sec_cntr = 0;
-		if(c041_en_25sec_ints && !c046_25sec_irq_pend) {
+		if(g_c041_val & C041_EN_25SEC_INTS) {
+			add_irq(IRQ_PENDING_C046_25SEC);
 			g_c046_val |= 0x10;
-			c046_25sec_irq_pend = 1;
-			add_irq();
-			irq_printf("Setting c046 .25 sec int to 1, "
-				"g_irq_pend: %d\n", g_irq_pending);
+			irq_printf("Setting c046 .25 sec int, g_irq_pend:%d\n",
+						g_irq_pending);
 		}
 	}
 
@@ -1988,10 +2058,9 @@ update_60hz(double dcycs, double dtime_now)
 		g_1sec_cntr = 0;
 		tmp = g_c023_val;
 		tmp |= 0x40;	/* set 1sec int */
-		if((tmp & 0x04) && !c023_1sec_int_irq_pending) {
-			c023_1sec_int_irq_pending = 1;
+		if(tmp & 0x04) {
 			tmp |= 0x80;
-			add_irq();
+			add_irq(IRQ_PENDING_C023_1SEC);
 			irq_printf("Setting c023 to %02x irq_pend: %d\n",
 				tmp, g_irq_pending);
 		}
@@ -2017,16 +2086,15 @@ update_60hz(double dcycs, double dtime_now)
 	sound_update(dcycs);
 	clock_update();
 	scc_update(dcycs);
-	joystick_update_button();
+	paddle_update_buttons();
 }
 
 void
 do_vbl_int()
 {
-	if(c041_en_vbl_ints && !c046_vbl_irq_pending) {
+	if(g_c041_val & C041_EN_VBL_INTS) {
 		g_c046_val |= 0x08;
-		c046_vbl_irq_pending = 1;
-		add_irq();
+		add_irq(IRQ_PENDING_C046_VBL);
 		irq_printf("Setting c046 vbl_int_status to 1, irq_pend: %d\n",
 			g_irq_pending);
 	}
@@ -2045,12 +2113,12 @@ do_scan_int(double dcycs, int line)
 	}
 
 	/* make sure scan int is still enabled for this line */
-	if(g_slow_memory_ptr[0x19d00 + line] & 0x40) {
+	if((g_slow_memory_ptr[0x19d00 + line] & 0x40) &&
+				(g_cur_a2_stat & ALL_STAT_SUPER_HIRES)) {
 		/* valid interrupt, do it */
 		c023_val |= 0xa0;	/* vgc_int and scan_int */
-		if((c023_val & 0x02) && !c023_scan_int_irq_pending) {
-			add_irq();
-			c023_scan_int_irq_pending = 1;
+		if(c023_val & 0x02) {
+			add_irq(IRQ_PENDING_C023_SCAN);
 			irq_printf("Setting c023 to %02x, irq_pend: %d\n",
 				c023_val, g_irq_pending);
 		}
@@ -2062,7 +2130,6 @@ do_scan_int(double dcycs, int line)
 		check_scan_line_int(dcycs, line+1);
 	}
 }
-
 
 void
 check_scan_line_int(double dcycs, int cur_video_line)
@@ -2128,6 +2195,7 @@ init_reg()
 	engine.stack = 0x1ff;
 	engine.direct = 0;
 	engine.psr = 0x134;
+	engine.fplus_ptr = 0;
 
 }
 
@@ -2173,6 +2241,9 @@ handle_action(word32 ret)
 		break;
 	case RET_WDM:
 		do_wdm(ret & 0xff);
+		break;
+	case RET_STP:
+		do_stp();
 		break;
 	default:
 		halt_printf("Unknown special action: %08x!\n", ret);
@@ -2274,12 +2345,99 @@ do_wai()
 void
 do_stp()
 {
-	halt_printf("Hit do_stp at addr: %06x\n", engine.kpc);
+	if(!g_stp_pending) {
+		g_stp_pending = 1;
+		halt_printf("Hit STP instruction at: %06x, press RESET to "
+				"continue\n", engine.kpc);
+	}
 }
 
 void
 size_fail(int val, word32 v1, word32 v2)
 {
 	halt_printf("Size failure, val: %08x, %08x %08x\n", val, v1, v2);
+}
+
+int
+fatal_printf(const char *fmt, ...)
+{
+	va_list	ap;
+	int	ret;
+
+	va_start(ap, fmt);
+
+	if(g_fatal_log < 0) {
+		g_fatal_log = 0;
+	}
+	ret = kegs_vprintf(fmt, ap);
+	va_end(ap);
+
+	return ret;
+}
+
+int
+kegs_vprintf(const char *fmt, va_list ap)
+{
+	char	*bufptr, *buf2ptr;
+	int	len;
+	int	ret;
+
+	bufptr = malloc(4096);
+	ret = vsnprintf(bufptr, 4090, fmt, ap);
+
+	len = strlen(bufptr);
+	if(g_fatal_log >= 0 && g_fatal_log < MAX_FATAL_LOGS) {
+		buf2ptr = malloc(len+1);
+		memcpy(buf2ptr, bufptr, len+1);
+		g_fatal_log_strs[g_fatal_log++] = buf2ptr;
+	}
+	must_write(1, bufptr, len);
+	if(g_debug_file_fd >= 0) {
+		must_write(g_debug_file_fd, bufptr, len);
+	}
+	free(bufptr);
+
+	return ret;
+}
+
+void
+must_write(int fd, char *bufptr, int len)
+{
+	int	ret;
+
+	while(len > 0) {
+		ret = write(fd, bufptr, len);
+		if(ret >= 0) {
+			len -= ret;
+			bufptr += ret;
+		} else if(errno != EAGAIN && errno != EINTR) {
+			return;		// just get out
+		}
+	}
+}
+
+void
+clear_fatal_logs()
+{
+	int	i;
+
+	for(i = 0; i < g_fatal_log; i++) {
+		free(g_fatal_log_strs[i]);
+		g_fatal_log_strs[i] = 0;
+	}
+	g_fatal_log = -1;
+}
+
+char *
+kegs_malloc_str(char *in_str)
+{
+	char	*str;
+	int	len;
+
+	len = strlen(in_str) + 1;
+	str = malloc(len);
+	memcpy(str, in_str, len);
+
+	return str;
 }
 

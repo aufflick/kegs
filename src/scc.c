@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.38 2003-11-20 23:50:32-05 kentd Exp $";
+const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.44 2004-12-03 17:33:40-05 kentd Exp $";
 
 #include "defc.h"
 
@@ -17,9 +17,10 @@ extern int g_code_yellow;
 extern double g_cur_dcycs;
 extern int g_raw_serial;
 extern int g_serial_out_masking;
+extern int g_irq_pending;
 
-/* my scc port 0 == channel A = slot 1 */
-/*        port 1 == channel B = slot 2 */
+/* my scc port 0 == channel A = slot 1 = c039/c03b */
+/*        port 1 == channel B = slot 2 = c038/c03a */
 
 #include "scc.h"
 #define SCC_R14_DPLL_SOURCE_BRG		0x100
@@ -45,23 +46,39 @@ void
 scc_init()
 {
 	Scc	*scc_ptr;
-	int	i;
+	int	i, j;
 
 	for(i = 0; i < 2; i++) {
 		scc_ptr = &(scc_stat[i]);
 		scc_ptr->accfd = -1;
+		scc_ptr->sockfd = -1;
+		scc_ptr->socket_state = -1;
 		scc_ptr->rdwrfd = -1;
 		scc_ptr->state = 0;
 		scc_ptr->host_handle = 0;
 		scc_ptr->host_handle2 = 0;
-		scc_ptr->int_pending_rx = 0;
-		scc_ptr->int_pending_tx = 0;
-		scc_ptr->int_pending_zerocnt = 0;
 		scc_ptr->br_event_pending = 0;
 		scc_ptr->rx_event_pending = 0;
 		scc_ptr->tx_event_pending = 0;
 		scc_ptr->char_size = 8;
 		scc_ptr->baud_rate = 9600;
+		scc_ptr->telnet_mode = 0;
+		scc_ptr->telnet_iac = 0;
+		scc_ptr->out_char_dcycs = 0.0;
+		scc_ptr->socket_num_rings = 0;
+		scc_ptr->socket_last_ring_dcycs = 0;
+		scc_ptr->modem_mode = 0;
+		scc_ptr->modem_dial_or_acc_mode = 0;
+		scc_ptr->modem_plus_mode = 0;
+		scc_ptr->modem_s0_val = 0;
+		scc_ptr->modem_cmd_len = 0;
+		scc_ptr->modem_cmd_str[0] = 0;
+		for(j = 0; j < 2; j++) {
+			scc_ptr->telnet_local_mode[j] = 0;
+			scc_ptr->telnet_remote_mode[j] = 0;
+			scc_ptr->telnet_reqwill_mode[j] = 0;
+			scc_ptr->telnet_reqdo_mode[j] = 0;
+		}
 	}
 
 	scc_reset();
@@ -83,6 +100,7 @@ scc_reset()
 		scc_ptr->in_wrptr = 0;
 		scc_ptr->out_rdptr = 0;
 		scc_ptr->out_wrptr = 0;
+		scc_ptr->dcd = 0;
 		scc_ptr->wantint_rx = 0;
 		scc_ptr->wantint_tx = 0;
 		scc_ptr->wantint_zerocnt = 0;
@@ -308,7 +326,7 @@ scc_port_init(int port)
 }
 
 void
-scc_try_to_empty_writebuf(int port)
+scc_try_to_empty_writebuf(int port, double dcycs)
 {
 	Scc	*scc_ptr;
 	int	state;
@@ -329,7 +347,7 @@ scc_try_to_empty_writebuf(int port)
 		scc_serial_win_empty_writebuf(port);
 #endif
 	} else if(state == 1) {
-		scc_socket_empty_writebuf(port);
+		scc_socket_empty_writebuf(port, dcycs);
 	}
 }
 
@@ -337,10 +355,22 @@ void
 scc_try_fill_readbuf(int port, double dcycs)
 {
 	Scc	*scc_ptr;
+	int	space_used, space_left;
 	int	state;
 
 	scc_ptr = &(scc_stat[port]);
 	state = scc_ptr->state;
+
+	space_used = scc_ptr->in_wrptr - scc_ptr->in_rdptr;
+	if(space_used < 0) {
+		space_used += SCC_INBUF_SIZE;
+	}
+	space_left = (7*SCC_INBUF_SIZE/8) - space_used;
+	if(space_left < 1) {
+		/* Buffer is pretty full, don't try to get more */
+		return;
+	}
+
 #if 0
 	if(scc_ptr->read_called_this_vbl) {
 		return;
@@ -351,13 +381,13 @@ scc_try_fill_readbuf(int port, double dcycs)
 
 	if(state == 2) {
 #if defined(MAC)
-		scc_serial_mac_fill_readbuf(port, dcycs);
+		scc_serial_mac_fill_readbuf(port, space_left, dcycs);
 #endif
 #if defined(_WIN32)
-		scc_serial_win_fill_readbuf(port, dcycs);
+		scc_serial_win_fill_readbuf(port, space_left, dcycs);
 #endif
 	} else if(state == 1) {
-		scc_socket_fill_readbuf(port, dcycs);
+		scc_socket_fill_readbuf(port, space_left, dcycs);
 	}
 }
 
@@ -370,8 +400,8 @@ scc_update(double dcycs)
 	scc_stat[0].read_called_this_vbl = 0;
 	scc_stat[1].read_called_this_vbl = 0;
 
-	scc_try_to_empty_writebuf(0);
-	scc_try_to_empty_writebuf(1);
+	scc_try_to_empty_writebuf(0, dcycs);
+	scc_try_to_empty_writebuf(1, dcycs);
 	scc_try_fill_readbuf(0, dcycs);
 	scc_try_fill_readbuf(1, dcycs);
 
@@ -423,6 +453,9 @@ show_scc_state()
 				scc_ptr->reg[j], scc_ptr->reg[j+1],
 				scc_ptr->reg[j+2], scc_ptr->reg[j+3]);
 		}
+		printf("state: %d, accfd: %d, rdwrfd: %d, host:%p, host2:%p\n",
+			scc_ptr->state, scc_ptr->accfd, scc_ptr->rdwrfd,
+			scc_ptr->host_handle, scc_ptr->host_handle2);
 		printf("in_rdptr: %04x, in_wr:%04x, out_rd:%04x, out_wr:%04x\n",
 			scc_ptr->in_rdptr, scc_ptr->in_wrptr,
 			scc_ptr->out_rdptr, scc_ptr->out_wrptr);
@@ -430,9 +463,6 @@ show_scc_state()
 			scc_ptr->rx_queue_depth, scc_ptr->rx_queue[0],
 			scc_ptr->rx_queue[1], scc_ptr->rx_queue[2],
 			scc_ptr->rx_queue[3]);
-		printf("int_pendings: rx:%d, tx:%d, zc:%d\n",
-			scc_ptr->int_pending_rx, scc_ptr->int_pending_tx,
-			scc_ptr->int_pending_zerocnt);
 		printf("want_ints: rx:%d, tx:%d, zc:%d\n",
 			scc_ptr->wantint_rx, scc_ptr->wantint_tx,
 			scc_ptr->wantint_zerocnt);
@@ -446,6 +476,18 @@ show_scc_state()
 		printf("char_size: %d, baud_rate: %d, mode: %d\n",
 			scc_ptr->char_size, scc_ptr->baud_rate,
 			scc_ptr->mode);
+		printf("modem_dial_mode:%d, telnet_mode:%d iac:%d, "
+			"modem_cmd_len:%d\n", scc_ptr->modem_dial_or_acc_mode,
+			scc_ptr->telnet_mode, scc_ptr->telnet_iac,
+			scc_ptr->modem_cmd_len);
+		printf("telnet_loc_modes:%08x %08x, telnet_rem_motes:"
+			"%08x %08x\n", scc_ptr->telnet_local_mode[0],
+			scc_ptr->telnet_local_mode[1],
+			scc_ptr->telnet_remote_mode[0],
+			scc_ptr->telnet_remote_mode[1]);
+		printf("modem_mode:%08x plus_mode: %d, out_char_dcycs: %f\n",
+			scc_ptr->modem_mode, scc_ptr->modem_plus_mode,
+			scc_ptr->out_char_dcycs);
 	}
 
 }
@@ -518,7 +560,11 @@ scc_read_reg(int port, double dcycs)
 	switch(regnum) {
 	case 0:
 	case 4:
-		ret = 0x68;	/* 0x44 = no dcd, no cts,0x6c = dcd ok, cts ok*/
+		ret = 0x60;	/* 0x44 = no dcd, no cts,0x6c = dcd ok, cts ok*/
+		if(scc_ptr->dcd) {
+			ret |= 0x08;
+		}
+		ret |= 0x8;	/* HACK HACK */
 		if(scc_ptr->rx_queue_depth) {
 			ret |= 0x01;
 		}
@@ -559,12 +605,7 @@ scc_read_reg(int port, double dcycs)
 	case 3:
 	case 7:
 		if(port == 0) {
-			ret = (scc_stat[1].int_pending_zerocnt) |
-				(scc_stat[1].int_pending_tx << 1) |
-				(scc_stat[1].int_pending_rx << 2) |
-				(scc_stat[0].int_pending_zerocnt << 3) |
-				(scc_stat[0].int_pending_tx << 4) |
-				(scc_stat[0].int_pending_rx << 5);
+			ret = (g_irq_pending & 0x3f);
 		} else {
 			ret = 0;
 		}
@@ -608,6 +649,7 @@ scc_write_reg(int port, word32 val, double dcycs)
 	Scc	*scc_ptr;
 	word32	old_val;
 	word32	changed_bits;
+	word32	irq_mask;
 	int	regnum;
 	int	mode;
 	int	tmp1;
@@ -654,11 +696,16 @@ scc_write_reg(int port, word32 val, double dcycs)
 		case 0x6:	/* reset rr1 bits */
 			break;
 		case 0x7:	/* reset highest pri int pending */
-			if(scc_ptr->int_pending_rx) {
+			irq_mask = g_irq_pending;
+			if(port == 0) {
+				/* Move SCC0 ints into SCC1 positions */
+				irq_mask = irq_mask >> 3;
+			}
+			if(irq_mask & IRQ_PENDING_SCC1_RX) {
 				scc_clr_rx_int(port);
-			} else if(scc_ptr->int_pending_tx) {
+			} else if(irq_mask & IRQ_PENDING_SCC1_TX) {
 				scc_clr_tx_int(port);
-			} else if(scc_ptr->int_pending_zerocnt) {
+			} else if(irq_mask & IRQ_PENDING_SCC1_ZEROCNT) {
 				scc_clr_zerocnt_int(port);
 			}
 			break;
@@ -673,7 +720,7 @@ scc_write_reg(int port, word32 val, double dcycs)
 			break;
 		case 0x1:	/* reset rx crc */
 		case 0x2:	/* reset tx crc */
-			halt_printf("Wr c03%x to wr0 of %02x!\n", 8+port, val);
+			printf("Wr c03%x to wr0 of %02x!\n", 8+port, val);
 			break;
 		case 0x3:	/* reset tx underrun/eom latch */
 			/* if no extern status pending, or being reset now */
@@ -850,34 +897,48 @@ void
 scc_evaluate_ints(int port)
 {
 	Scc	*scc_ptr;
+	word32	irq_add_mask, irq_remove_mask;
 	int	mie;
 
 	scc_ptr = &(scc_stat[port]);
 	mie = scc_stat[0].reg[9] & 0x8;			/* Master int en */
 
-	if(mie && scc_ptr->wantint_rx && !scc_ptr->int_pending_rx) {
-		scc_ptr->int_pending_rx = 1;
-		add_irq();
+	if(!mie) {
+		/* There can be no interrupts if MIE=0 */
+		remove_irq(IRQ_PENDING_SCC1_RX | IRQ_PENDING_SCC1_TX |
+						IRQ_PENDING_SCC1_ZEROCNT |
+			IRQ_PENDING_SCC0_RX | IRQ_PENDING_SCC0_TX |
+						IRQ_PENDING_SCC0_ZEROCNT);
+		return;
 	}
-	if(scc_ptr->int_pending_rx && (!mie || !scc_ptr->wantint_rx)) {
-		scc_ptr->int_pending_rx = 0;
-		remove_irq();
+
+	irq_add_mask = 0;
+	irq_remove_mask = 0;
+	if(scc_ptr->wantint_rx) {
+		irq_add_mask |= IRQ_PENDING_SCC1_RX;
+	} else {
+		irq_remove_mask |= IRQ_PENDING_SCC1_RX;
 	}
-	if(mie && scc_ptr->wantint_tx && !scc_ptr->int_pending_tx) {
-		scc_ptr->int_pending_tx = 1;
-		add_irq();
+	if(scc_ptr->wantint_tx) {
+		irq_add_mask |= IRQ_PENDING_SCC1_TX;
+	} else {
+		irq_remove_mask |= IRQ_PENDING_SCC1_TX;
 	}
-	if(scc_ptr->int_pending_tx && (!mie || !scc_ptr->wantint_tx)) {
-		scc_ptr->int_pending_tx = 0;
-		remove_irq();
+	if(scc_ptr->wantint_zerocnt) {
+		irq_add_mask |= IRQ_PENDING_SCC1_ZEROCNT;
+	} else {
+		irq_remove_mask |= IRQ_PENDING_SCC1_ZEROCNT;
 	}
-	if(mie && scc_ptr->wantint_zerocnt && !scc_ptr->int_pending_zerocnt) {
-		scc_ptr->int_pending_zerocnt = 1;
-		add_irq();
+	if(port == 0) {
+		/* Port 1 is in bits 0-2 and port 0 is in bits 3-5 */
+		irq_add_mask = irq_add_mask << 3;
+		irq_remove_mask = irq_remove_mask << 3;
 	}
-	if(scc_ptr->int_pending_zerocnt && (!mie || !scc_ptr->wantint_zerocnt)){
-		scc_ptr->int_pending_zerocnt = 0;
-		remove_irq();
+	if(irq_add_mask) {
+		add_irq(irq_add_mask);
+	}
+	if(irq_remove_mask) {
+		remove_irq(irq_remove_mask);
 	}
 }
 
@@ -1044,11 +1105,33 @@ scc_add_to_readbuf(int port, word32 val, double dcycs)
 }
 
 void
-scc_add_to_writebuf(int port, word32 val, double dcycs)
+scc_add_to_readbufv(int port, double dcycs, const char *fmt, ...)
+{
+	va_list	ap;
+	char	*bufptr;
+	int	ret, len, c;
+	int	i;
+
+	va_start(ap, fmt);
+	bufptr = malloc(4096);
+	bufptr[0] = 0;
+	ret = vsnprintf(bufptr, 4090, fmt, ap);
+	len = strlen(bufptr);
+	for(i = 0; i < len; i++) {
+		c = bufptr[i];
+		if(c == 0x0a) {
+			scc_add_to_readbuf(port, 0x0d, dcycs);
+		}
+		scc_add_to_readbuf(port, c, dcycs);
+	}
+	va_end(ap);
+}
+
+void
+scc_transmit(int port, word32 val, double dcycs)
 {
 	Scc	*scc_ptr;
 	int	out_wrptr;
-	int	out_wrptr_next;
 	int	out_rdptr;
 
 	scc_ptr = &(scc_stat[port]);
@@ -1080,6 +1163,31 @@ scc_add_to_writebuf(int port, word32 val, double dcycs)
 	if(g_serial_out_masking) {
 		val = val & 0x7f;
 	}
+
+	scc_add_to_writebuf(port, val, dcycs);
+}
+
+void
+scc_add_to_writebuf(int port, word32 val, double dcycs)
+{
+	Scc	*scc_ptr;
+	int	out_wrptr;
+	int	out_wrptr_next;
+	int	out_rdptr;
+
+	scc_ptr = &(scc_stat[port]);
+
+	/* See if port initialized, if not, do so now */
+	if(scc_ptr->state == 0) {
+		scc_port_init(port);
+	}
+	if(scc_ptr->state < 0) {
+		/* No working serial port, just toss it and go */
+		return;
+	}
+
+	out_wrptr = scc_ptr->out_wrptr;
+	out_rdptr = scc_ptr->out_rdptr;
 
 	out_wrptr_next = (out_wrptr + 1) & (SCC_OUTBUF_SIZE - 1);
 	if(out_wrptr_next != out_rdptr) {
@@ -1144,9 +1252,9 @@ scc_write_data(int port, word32 val, double dcycs)
 		/* local loopback! */
 		scc_add_to_readbuf(port, val, dcycs);
 	} else {
-		scc_add_to_writebuf(port, val, dcycs);
+		scc_transmit(port, val, dcycs);
 	}
-	scc_try_to_empty_writebuf(port);
+	scc_try_to_empty_writebuf(port, dcycs);
 
 	scc_maybe_tx_event(port, dcycs);
 }

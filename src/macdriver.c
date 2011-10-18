@@ -1,6 +1,6 @@
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
-/*			Copyright 2002 by Kent Dickey			*/
+/*			Copyright 2002-2004 by Kent Dickey		*/
 /*									*/
 /*		This code is covered by the GNU GPL			*/
 /*									*/
@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_macdriver_c[] = "@(#)$KmKId: macdriver.c,v 1.19 2004-03-23 17:27:56-05 kentd Exp $";
+const char rcsid_macdriver_c[] = "@(#)$KmKId: macdriver.c,v 1.24 2004-11-14 10:23:29-05 kentd Exp $";
 
 // Quartz: CreateCGContextForPort vs QDBeginCGContext
 
@@ -16,6 +16,7 @@ const char rcsid_macdriver_c[] = "@(#)$KmKId: macdriver.c,v 1.19 2004-03-23 17:2
 // Use CGPointMake to get a point
 
 #include <Carbon/Carbon.h>
+#include <Quicktime/Quicktime.h>
 
 #include "defc.h"
 #include "protos_macdriver.h"
@@ -25,6 +26,9 @@ const char rcsid_macdriver_c[] = "@(#)$KmKId: macdriver.c,v 1.19 2004-03-23 17:2
 #define MAX_MAC_ARGS		128
 
 WindowRef	g_main_window;
+WindowRef	g_main_window_saved;
+Rect		g_main_window_saved_rect;
+Ptr		g_mac_fullscreen_state = 0;
 int		g_quit_seen = 0;
 EventHandlerUPP g_quit_handler_UPP;
 EventHandlerUPP g_dummy_event_handler_UPP;
@@ -32,6 +36,7 @@ RgnHandle	g_event_rgnhandle = 0;
 int		g_ignore_next_click = 0;
 int		g_mainwin_active = 0;
 GDHandle	g_gdhandle = 0;
+
 int	g_mac_mouse_x = 0;
 int	g_mac_mouse_y = 0;
 
@@ -43,6 +48,8 @@ int	g_mac_argc = 0;
 char	*g_mac_argv[MAX_MAC_ARGS];
 word32	g_mac_shift_control_state = 0;
 extern char g_argv0_path[];
+extern char *g_fatal_log_strs[];
+extern int g_fatal_log;
 
 extern word32 g_red_mask;
 extern word32 g_green_mask;
@@ -67,6 +74,13 @@ extern int g_send_sound_to_file;
 
 extern int g_quit_sim_now;
 extern int g_config_control_panel;
+
+extern int g_video_act_width;
+extern int g_video_act_height;
+extern int g_video_act_margin_left;
+extern int g_video_act_margin_right;
+extern int g_video_act_margin_top;
+extern int g_video_act_margin_bottom;
 
 int	g_auto_repeat_on = -1;
 int	g_x_shift_control_state = 0;
@@ -99,8 +113,7 @@ extern char *g_status_ptrs[MAX_STATUS_LINES];
 extern const char g_kegs_version_str[];
 
 #if 0
-char g_printf_buf[4096];
-int	g_debug_file_fd = -1;
+extern int g_debug_file_fd;
 
 /* HACK to debug startup issues when launched from Finder */
 int
@@ -110,7 +123,6 @@ printf(const char *fmt, ...)
 	int	ret;
 
 	va_start(ap, fmt);
-	ret = vsnprintf(g_printf_buf, 4090, fmt, ap);
 
 	if(g_debug_file_fd < 0) {
 		g_debug_file_fd = open("/tmp/kegs.out",
@@ -118,8 +130,7 @@ printf(const char *fmt, ...)
 		fprintf(stdout, "g_debug_file_fd = %d, %d\n", g_debug_file_fd,
 				errno);
 	}
-	write(1, g_printf_buf, strlen(g_printf_buf));
-	write(g_debug_file_fd, g_printf_buf, strlen(g_printf_buf));
+	ret = kegs_vprintf(fmt, ap);
 
 	va_end(ap);
 
@@ -140,27 +151,103 @@ quit_event_handler(EventHandlerCallRef call_ref, EventRef event, void *ignore)
 }
 
 void
-show_alert(const char *str1, const char *str2, const char *str3, int num)
+show_simple_alert(char *str1, char *str2, char *str3, int num)
 {
 	char		buf[256];
-	DialogRef	alert;
-	DialogItemIndex	out_item_hit;
-	CFStringRef	cfstrref;
 
+	g_fatal_log_strs[0] = kegs_malloc_str(str1);
+	g_fatal_log_strs[1] = kegs_malloc_str(str2);
+	g_fatal_log_strs[2] = kegs_malloc_str(str3);
+	g_fatal_log = 3;
 	if(num != 0) {
-		snprintf(buf, 250, "%s%s%s: %d", str1, str2, str3, num);
-	} else {
-		snprintf(buf, 250, "%s%s%s", str1, str2, str3);
+		snprintf(buf, 250, ": %d", num);
+		g_fatal_log_strs[g_fatal_log++] = kegs_malloc_str(buf);
 	}
-
-	cfstrref = CFStringCreateWithCString(NULL, buf,
-						kCFStringEncodingMacRoman);
-
-	CreateStandardAlert(kAlertStopAlert, cfstrref, CFSTR("Click OK"),
-			NULL, &alert);
-	RunStandardAlert(alert, NULL, &out_item_hit);
+	x_show_alert(0, 0);
 }
 
+void
+x_dialog_create_kegs_conf(const char *str)
+{
+	char	*path;
+	char	tmp_buf[512];
+	int	ret;
+
+	ret = x_show_alert(1, str);
+	if(ret) {
+		// Create empty file
+		path = "~/Library/KEGS";
+		snprintf(tmp_buf, 500, "mkdir -p %s", path);
+		system(tmp_buf);
+		snprintf(tmp_buf, 500, "touch %s/%s", path, str);
+		system(tmp_buf);
+	}
+}
+
+int
+x_show_alert(int is_fatal, const char *str)
+{
+	DialogRef	alert;
+	DialogItemIndex	out_item_hit;
+	CFStringRef	cfstrref, cfstrref2;
+	CFStringRef	okstrref;
+	AlertStdCFStringAlertParamRec alert_param;
+	OSStatus osstat;
+	char	*bufptr, *buf2ptr;
+	int	sum, len;
+	int	i;
+
+	/* The dialog eats all events--including key-up events */
+	/* Call adb_all_keys_up() to prevent annoying key-repeat problems */
+	/*  for instance, a key-down causes a dialog to appear--and the */
+	/*  eats the key-up event...then as soon as the dialog goes, adb.c */
+	/*  auto-repeat will repeat the key, and the dialog re-appears...*/
+	adb_all_keys_up();
+
+	sum = 20;
+	for(i = 0; i < g_fatal_log; i++) {
+		sum += strlen(g_fatal_log_strs[i]);
+	}
+	bufptr = malloc(sum);
+	buf2ptr = bufptr;
+	for(i = 0; i < g_fatal_log; i++) {
+		len = strlen(g_fatal_log_strs[i]);
+		len = MIN(len, sum);
+		len = MAX(len, 0);
+		memcpy(bufptr, g_fatal_log_strs[i], MIN(len, sum));
+		bufptr += len;
+		bufptr[0] = 0;
+		sum = sum - len;
+	}
+
+	cfstrref = CFStringCreateWithCString(NULL, buf2ptr,
+						kCFStringEncodingMacRoman);
+
+	printf("buf2ptr: :%s:\n", buf2ptr);
+
+	osstat = GetStandardAlertDefaultParams(&alert_param,
+						kStdCFStringAlertVersionOne);
+
+	if(str) {
+		// Provide an extra option--create a file
+		cfstrref2 = CFStringCreateWithFormat(kCFAllocatorDefault, NULL,
+				CFSTR("Create ~/Library/KEGS/%s"), str);
+		alert_param.otherText = cfstrref2;
+	}
+	okstrref = CFSTR("Click OK to continue");
+	if(is_fatal) {
+		okstrref = CFSTR("Clock OK to exit KEGS");
+	}
+	CreateStandardAlert(kAlertStopAlert, cfstrref, okstrref,
+			&alert_param, &alert);
+	out_item_hit = -1;
+	RunStandardAlert(alert, NULL, &out_item_hit);
+	printf("out_item_hit: %d\n", out_item_hit);
+	free(buf2ptr);
+
+	clear_fatal_logs();		/* free the fatal_log string memory */
+	return (out_item_hit >= 3);
+}
 
 
 pascal OSStatus
@@ -182,13 +269,13 @@ my_cmd_handler( EventHandlerCallRef handlerRef, EventRef event, void *userdata)
 		osresult = noErr;
 		break;
 	case 'abou':
-		show_alert("KEGSMAC v", g_kegs_version_str,
+		show_simple_alert("KEGSMAC v", (char *)g_kegs_version_str,
 			", Copyright 2004 Kent Dickey\n"
 			"Latest version at http://kegs.sourceforge.net/\n", 0);
 		osresult = noErr;
 		break;
 	case 'KCFG':
-		g_config_control_panel = !g_config_control_panel;
+		cfg_toggle_config_panel();
 		osresult = noErr;
 		break;
 	case 'quit':
@@ -386,7 +473,7 @@ check_input_events()
 			break;
 		}
 		if(err != noErr) {
-			printf("err: %d\n", (int)err);
+			printf("ReceiveNextEvent err: %d\n", (int)err);
 			break;
 		}
 
@@ -488,8 +575,10 @@ check_input_events()
 				}
 				mac_warp_mouse();
 			} else {
-				g_mac_mouse_x = mouse_point.h -BASE_MARGIN_LEFT;
-				g_mac_mouse_y = mouse_point.v -BASE_MARGIN_TOP;
+				g_mac_mouse_x = mouse_point.h -
+							g_video_act_margin_left;
+				g_mac_mouse_y = mouse_point.v -
+							g_video_act_margin_top;
 			}
 
 #if 0
@@ -723,6 +812,8 @@ main(int argc, char* argv[])
 	}
 
 	// show_alert("About to show window", (int)g_main_window);
+	update_main_window_size();
+
 	update_window();
 
 	// The window was created hidden so show it.
@@ -742,7 +833,7 @@ main(int argc, char* argv[])
 CantCreateWindow:
 CantSetMenuBar:
 CantGetNibRef:
-	show_alert("ending", "", "error code", err);
+	show_simple_alert("ending", "", "error code", err);
 	return err;
 }
 
@@ -773,6 +864,9 @@ xdriver_end()
 {
 
 	printf("xdriver_end\n");
+	if(g_fatal_log >= 0) {
+		x_show_alert(1, 0);
+	}
 }
 
 void
@@ -932,6 +1026,12 @@ x_push_kimage(Kimage *kimage_ptr, int destx, int desty, int srcx, int srcy,
 void
 x_push_done()
 {
+	CGrafPtr window_port;
+
+	SetPortWindowPort(g_main_window);
+	window_port = GetWindowPort(g_main_window);
+
+	QDFlushPortBuffer(window_port, 0);
 }
 
 void
@@ -952,4 +1052,74 @@ x_hide_pointer(int do_hide)
 	} else {
 		ShowCursor();
 	}
+}
+
+void
+x_full_screen(int do_full)
+{
+	WindowRef new_window;
+	short	width, height;
+	OSErr	ret;
+
+	width = 640;
+	height = 480;
+	if(do_full && (g_mac_fullscreen_state == 0)) {
+		g_main_window_saved = g_main_window;
+		
+		GetWindowBounds(g_main_window, kWindowContentRgn,
+						&g_main_window_saved_rect);
+		ret = BeginFullScreen(&g_mac_fullscreen_state, 0,
+			&width, &height, &new_window, 0, 0);
+		printf("Ret beginfullscreen: %d\n", (int)ret);
+		printf("New width: %d, new height: %d\n", width, height);
+		if(ret == noErr) {
+			g_main_window = new_window;
+		} else {
+			g_mac_fullscreen_state = 0;
+		}
+	} else if(!do_full && (g_mac_fullscreen_state != 0)) {
+		ret = EndFullScreen(g_mac_fullscreen_state, 0);
+		printf("ret endfullscreen: %d\n", (int)ret);
+		g_main_window = g_main_window_saved;
+		g_mac_fullscreen_state = 0;
+		//InitCursor();
+		SetWindowBounds(g_main_window, kWindowContentRgn,
+						&g_main_window_saved_rect);
+	}
+
+	update_main_window_size();
+
+	ShowWindow(g_main_window);
+	BringToFront(g_main_window);
+	update_window();
+}
+
+void
+update_main_window_size()
+{
+	Rect	win_rect;
+	int	width, height;
+	int	left, excess_height;
+	int	top, bottom;
+
+	GetPortBounds(GetWindowPort(g_main_window), &win_rect);
+	width = win_rect.right - win_rect.left;
+	height = win_rect.bottom - win_rect.top;
+	g_video_act_width = width;
+	g_video_act_height = height;
+
+	left = MAX(0, (width - A2_WINDOW_WIDTH) / 2);
+	left = MIN(left, BASE_MARGIN_LEFT);
+	g_video_act_margin_left = left;
+	g_video_act_margin_right = left;
+
+
+	excess_height = (height - A2_WINDOW_HEIGHT) / 2;
+	bottom = MAX(0, excess_height / 2);		// No less than 0
+	bottom = MIN(BASE_MARGIN_BOTTOM, bottom);	// No more than 30
+	g_video_act_margin_bottom = bottom;
+	excess_height -= bottom;
+	top = MAX(0, excess_height);
+	top = MIN(BASE_MARGIN_TOP, top);
+	g_video_act_margin_top = top;
 }

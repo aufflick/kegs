@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_adb_h[] = "@(#)$KmKId: adb.h,v 1.9 2002-11-19 03:10:38-05 kadickey Exp $";
+const char rcsid_adb_h[] = "@(#)$KmKId: adb.h,v 1.11 2004-10-13 23:30:33-04 kentd Exp $";
 
 #include "defc.h"
 
@@ -87,7 +87,7 @@ const int a2_key_to_ascii[][4] = {
 	{ 0x3f, -1, -1, -1 },
 
 	{ 0x40, -1, -1, -1 },
-	{ 0x41,	0x102e,	0x102e,	-1 },	/* keypad . */
+	{ 0x41,	0x102e,	0x102c,	-1 },	/* keypad . */
 	{ 0x42, -1, -1, -1 },
 	{ 0x43,	0x102a,	0x102a,	-1 },	/* keypad * */
 	{ 0x44, -1, -1, -1 },
@@ -115,7 +115,7 @@ const int a2_key_to_ascii[][4] = {
 
 	{ 0x58,	0x1036, 0x1036, -1 },	/* keypad 6 */
 	{ 0x59,	0x1037, 0x1037,	-1 },	/* keypad 7 */
-	{ 0x5a, -1, -1, -1 },
+	{ 0x5a,	'a',	'A',	0x01 },	/* probably not necessary */
 	{ 0x5b,	0x1038,	0x1038,	-1 },	/* keypad 8 */
 	{ 0x5c,	0x1039,	0x1039,	-1 },	/* keypad 9 */
 	{ 0x5d, -1, -1, -1 },
@@ -137,7 +137,7 @@ const int a2_key_to_ascii[][4] = {
 	{ 0x6b,	0x800e,	0x106b,	-1 },	/* F14 */
 	{ 0x6c, -1, -1, -1 },
 	{ 0x6d,	0x800a,	0x106d,	-1 },	/* F10 */
-	{ 0x6e, -1, -1, -1 },
+	{ 0x6e, 0x4000, 0x4000, -1 },	/* windows key alias to option */
 	{ 0x6f,	0x800c,	0x106f,	-1 },	/* F12 */
 
 	{ 0x70, -1, -1, -1 },

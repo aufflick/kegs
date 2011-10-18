@@ -9,30 +9,41 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_scc_h[] = "@(#)$KmKId: scc.h,v 1.12 2003-11-21 00:27:00-05 kentd Exp $";
+const char rcsid_scc_h[] = "@(#)$KmKId: scc.h,v 1.17 2004-12-03 14:03:12-05 kentd Exp $";
 #endif
 
+#include <ctype.h>
+
 #ifdef _WIN32
-# include <winsock.h>
+# include <winsock2.h>
 #else
 # include <sys/socket.h>
 # include <netinet/in.h>
+# include <netdb.h>
 #endif
 
-#if defined(HPUX) || defined(__linux__) || defined(SOLARIS) || defined(MAC) || defined(__MACH__)
+#if defined(HPUX) || defined(__linux__) || defined(SOLARIS) || defined(MAC) || defined(__MACH__) || defined(_WIN32)
 # define SCC_SOCKETS
 #endif
 
 
 /* my scc port 0 == channel A, port 1 = channel B */
 
-#define	SCC_INBUF_SIZE		4096		/* must be a power of 2 */
-#define	SCC_OUTBUF_SIZE		4096		/* must be a power of 2 */
+#define	SCC_INBUF_SIZE		512		/* must be a power of 2 */
+#define	SCC_OUTBUF_SIZE		512		/* must be a power of 2 */
+
+#define SCC_MODEM_MAX_CMD_STR	128
+
+#ifndef SOCKET
+# define SOCKET		word32		/* for non-windows */
+#endif
 
 STRUCT(Scc) {
 	int	port;
 	int	state;
 	int	accfd;
+	SOCKET	sockfd;
+	int	socket_state;
 	int	rdwrfd;
 	void	*host_handle;
 	void	*host_handle2;
@@ -60,9 +71,7 @@ STRUCT(Scc) {
 	int	wantint_rx;
 	int	wantint_tx;
 	int	wantint_zerocnt;
-	int	int_pending_rx;
-	int	int_pending_tx;
-	int	int_pending_zerocnt;
+	int	dcd;
 
 	double	br_dcycs;
 	double	tx_dcycs;
@@ -74,5 +83,24 @@ STRUCT(Scc) {
 
 	int	char_size;
 	int	baud_rate;
+	double	out_char_dcycs;
+
+	int	socket_num_rings;
+	int	socket_last_ring_dcycs;
+	word32	modem_mode;
+	int	modem_dial_or_acc_mode;
+	int	modem_plus_mode;
+	int	modem_s0_val;
+	int	telnet_mode;
+	int	telnet_iac;
+	word32	telnet_local_mode[2];
+	word32	telnet_remote_mode[2];
+	word32	telnet_reqwill_mode[2];
+	word32	telnet_reqdo_mode[2];
+	int	modem_cmd_len;
+	byte	modem_cmd_str[SCC_MODEM_MAX_CMD_STR + 5];
 };
+
+#define SCCMODEM_NOECHO		0x0001
+#define SCCMODEM_NOVERBOSE	0x0002
 

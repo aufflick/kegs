@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_joystick_driver_c[] = "@(#)$KmKId: joystick_driver.c,v 1.7 2002-11-19 03:09:59-05 kadickey Exp $";
+const char rcsid_joystick_driver_c[] = "@(#)$KmKId: joystick_driver.c,v 1.12 2004-10-17 21:28:48-04 kentd Exp $";
 
 #include "defc.h"
 #include <sys/time.h>
@@ -22,20 +22,23 @@ const char rcsid_joystick_driver_c[] = "@(#)$KmKId: joystick_driver.c,v 1.7 2002
 # include <mmsystem.h>
 #endif
 
-extern int g_joystick_type;		/* in paddles.c */
-extern int g_paddle_button[];
+extern int g_joystick_native_type1;		/* in paddles.c */
+extern int g_joystick_native_type2;		/* in paddles.c */
+extern int g_joystick_native_type;		/* in paddles.c */
+extern int g_paddle_buttons;
 extern int g_paddle_val[];
 
 
 const char *g_joystick_dev = "/dev/js0";	/* default joystick dev file */
 #define MAX_JOY_NAME	128
 
-int	g_joystick_fd = -1;
+int	g_joystick_native_fd = -1;
 int	g_joystick_num_axes = 0;
 int	g_joystick_num_buttons = 0;
 
 
 #ifdef __linux__
+# define JOYSTICK_DEFINED
 void
 joystick_init()
 {
@@ -64,22 +67,24 @@ joystick_init()
 		joy_name, g_joystick_num_axes, g_joystick_num_buttons,
 		version);
 
-	g_joystick_type = JOYSTICK_LINUX;
-	g_joystick_fd = fd;
+	g_joystick_native_type1 = 1;
+	g_joystick_native_type2 = -1;
+	g_joystick_native_fd = fd;
 	for(i = 0; i < 4; i++) {
-		g_paddle_val[i] = 280;
-		g_paddle_button[i] = 1;
+		g_paddle_val[i] = 32767;
 	}
+	g_paddle_buttons = 0xc;
 
-	joystick_update();
+	joystick_update(0.0);
 }
 
 /* joystick_update_linux() called from paddles.c.  Update g_paddle_val[] */
-/*  and g_paddle_button[] arrays with current information */
+/*  and g_paddle_buttons with current information */
 void
-joystick_update()
+joystick_update(double dcycs)
 {
 	struct js_event js;	/* the linux joystick event record */
+	int	mask;
 	int	val;
 	int	num;
 	int	type;
@@ -90,35 +95,42 @@ joystick_update()
 	/* suck up to 20 events, then give up */
 	len = sizeof(struct js_event);
 	for(i = 0; i < 20; i++) {
-		ret = read(g_joystick_fd, &js, len);
+		ret = read(g_joystick_native_fd, &js, len);
 		if(ret != len) {
 			/* just get out */
-			return;
+			break;
 		}
 		type = js.type & ~JS_EVENT_INIT;
 		val = js.value;
 		num = js.number & 3;		/* clamp to 0-3 */
 		switch(type) {
 		case JS_EVENT_BUTTON:
-			g_paddle_button[num] = val;
+			mask = 1 << num;
+			if(val) {
+				val = mask;
+			}
+			g_paddle_buttons = (g_paddle_buttons & ~mask) | val;
 			break;
 		case JS_EVENT_AXIS:
-			/* val is -32767 to +32767, convert to 0->280 */
-			/* want just 255, but go a little over for robustness*/
-			g_paddle_val[num] = ((val + 32767) * 9) >> 11;
+			/* val is -32767 to +32767 */
+			g_paddle_val[num] = val;
 			break;
 		}
+	}
+
+	if(i > 0) {
+		paddle_update_trigger_dcycs(dcycs);
 	}
 }
 
 void
-joystick_update_button()
+joystick_update_buttons()
 {
 }
+#endif /* LINUX */
 
-#else	/* !__linux__ */
-
-# ifdef _WIN32
+#ifdef _WIN32
+# define JOYSTICK_DEFINED
 void
 joystick_init()
 {
@@ -129,99 +141,120 @@ joystick_init()
 
 	//	Check that there is a joystick device
 	if(joyGetNumDevs() <= 0) {
-		printf("--No joystick hardware detected\n");
+		printf("No joystick hardware detected\n");
+		g_joystick_native_type1 = -1;
+		g_joystick_native_type2 = -1;
 		return;
 	}
+
+	g_joystick_native_type1 = -1;
+	g_joystick_native_type2 = -1;
 
 	//	Check that at least joystick 1 or joystick 2 is available
 	ret1 = joyGetPos(JOYSTICKID1, &info);
 	ret2 = joyGetDevCaps(JOYSTICKID1, &joycap, sizeof(joycap));
 	if(ret1 == JOYERR_NOERROR && ret2 == JOYERR_NOERROR) {
-		g_joystick_type = JOYSTICK_WIN32_1;
-		printf("--Joystick #1 = %s\n", joycap.szPname);
-	} else {
-		ret1 = joyGetPos(JOYSTICKID2, &info);
-		ret2 = joyGetDevCaps(JOYSTICKID2, &joycap, sizeof(joycap));
-		if(ret1 == JOYERR_NOERROR && ret2 == JOYERR_NOERROR) {
-			g_joystick_type = JOYSTICK_WIN32_2;
-			printf("--Joystick #2 = %s\n", joycap.szPname);
-		} else {
-			printf("No joysticks found...\n");
-			g_joystick_type = JOYSTICK_MOUSE;
-			return;
+		g_joystick_native_type1 = JOYSTICKID1;
+		printf("Joystick #1 = %s\n", joycap.szPname);
+		g_joystick_native_type = JOYSTICKID1;
+	}
+	ret1 = joyGetPos(JOYSTICKID2, &info);
+	ret2 = joyGetDevCaps(JOYSTICKID2, &joycap, sizeof(joycap));
+	if(ret1 == JOYERR_NOERROR && ret2 == JOYERR_NOERROR) {
+		g_joystick_native_type2 = JOYSTICKID2;
+		printf("Joystick #2 = %s\n", joycap.szPname);
+		if(g_joystick_native_type < 0) {
+			g_joystick_native_type = JOYSTICKID2;
 		}
-	
 	}
 
 	for(i = 0; i < 4; i++) {
-		g_paddle_val[i] = 280;
-		g_paddle_button[i] = 1;
+		g_paddle_val[i] = 32767;
 	}
+	g_paddle_buttons = 0xc;
 
-	joystick_update();
+	joystick_update(0.0);
 }
 
 void
-joystick_update()
+joystick_update(double dcycs)
 {
 	JOYCAPS joycap;
 	JOYINFO info;
 	UINT	id;
 	MMRESULT ret1, ret2;
 
-	id = JOYSTICKID1;
-	if(g_joystick_type == JOYSTICK_WIN32_2) {
-		id = JOYSTICKID2;
-	}
+	id = g_joystick_native_type;
 
 	ret1 = joyGetDevCaps(id, &joycap, sizeof(joycap));
 	ret2 = joyGetPos(id, &info);
 	if(ret1 == JOYERR_NOERROR && ret2 == JOYERR_NOERROR) {
-		g_paddle_val[0] = (info.wXpos - joycap.wXmin) * 280 /
+		g_paddle_val[0] = (info.wXpos - joycap.wXmin) * 32768 /
 						(joycap.wXmax - joycap.wXmin);
-		g_paddle_val[1] = (info.wYpos - joycap.wYmin) * 280 /
+		g_paddle_val[1] = (info.wYpos - joycap.wYmin) * 32768 /
 						(joycap.wYmax - joycap.wYmin);
-		g_paddle_button[0] = ((info.wButtons & JOY_BUTTON1) ? 1 : 0);
-		g_paddle_button[1] = ((info.wButtons & JOY_BUTTON2) ? 1 : 0);
+		if(info.wButtons & JOY_BUTTON1) {
+			g_paddle_buttons = g_paddle_buttons | 1;
+		} else {
+			g_paddle_buttons = g_paddle_buttons & (~1);
+		}
+		if(info.wButtons & JOY_BUTTON2) {
+			g_paddle_buttons = g_paddle_buttons | 2;
+		} else {
+			g_paddle_buttons = g_paddle_buttons & (~2);
+		}
+		paddle_update_trigger_dcycs(dcycs);
 	}
 }
 
 void
-joystick_update_button()
+joystick_update_buttons()
 {
 	JOYINFOEX info;
 	UINT id;
 
-	id = JOYSTICKID1;
-	if(g_joystick_type == JOYSTICK_WIN32_2) {
-		id = JOYSTICKID2;
-	}
+	id = g_joystick_native_type;
 
 	info.dwSize = sizeof(JOYINFOEX);
 	info.dwFlags = JOY_RETURNBUTTONS;
 	if(joyGetPosEx(id, &info) == JOYERR_NOERROR) {
-		g_paddle_button[0] = ((info.dwButtons & JOY_BUTTON1) ? 1 : 0);
-		g_paddle_button[1] = ((info.dwButtons & JOY_BUTTON2) ? 1 : 0);
+		if(info.dwButtons & JOY_BUTTON1) {
+			g_paddle_buttons = g_paddle_buttons | 1;
+		} else {
+			g_paddle_buttons = g_paddle_buttons & (~1);
+		}
+		if(info.dwButtons & JOY_BUTTON2) {
+			g_paddle_buttons = g_paddle_buttons | 2;
+		} else {
+			g_paddle_buttons = g_paddle_buttons & (~2);
+		}
 	}
 }
-# else
+#endif
 
+#ifndef JOYSTICK_DEFINED
 /* stubs for the routines */
 void
 joystick_init()
 {
-	printf("No joy with joystick\n");
+	g_joystick_native_type1 = -1;
+	g_joystick_native_type2 = -1;
+	g_joystick_native_type = -1;
 }
 
 void
-joystick_update()
+joystick_update(double dcycs)
 {
+	int	i;
+
+	for(i = 0; i < 4; i++) {
+		g_paddle_val[i] = 32767;
+	}
+	g_paddle_buttons = 0xc;
 }
 
 void
-joystick_update_button()
+joystick_update_buttons()
 {
 }
-
-# endif		/* !WIN32 */
 #endif

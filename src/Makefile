@@ -1,4 +1,4 @@
-# $Id: release_makefile_base,v 1.15 2003/11/21 20:00:42 kentd Exp $
+# $Id: release_makefile_base,v 1.15 2003/11/21 20:00:42 kentd Exp kentd $
 
 OBJECTS1 = adb.o clock.o config.o dis.o engine_c.o scc.o iwm.o \
 	joystick_driver.o moremem.o paddles.o sim65816.o smartport.o \
@@ -24,17 +24,18 @@ specials_clean:
 
 # Mac builds:
 kegsmac: $(OBJECTS) compile_time.o
-	$(CC) $(CCOPTS) $(LDOPTS) -arch ppc $(OBJECTS) compile_time.o $(LDFLAGS) -o kegsmac $(EXTRA_LIBS) -prebind -framework Carbon
+	$(CC) $(CCOPTS) $(LDOPTS) -arch ppc $(OBJECTS) compile_time.o $(LDFLAGS) -o kegsmac $(EXTRA_LIBS) -prebind -framework Carbon -framework Quicktime
 	mkdir -p ../KEGSMAC.app/Contents/Resources/English.lproj/main.nib
 	mkdir -p ../KEGSMAC.app/Contents/MacOS
 	mv kegsmac ../KEGSMAC.app/Contents/MacOS/KEGSMAC
 	echo "APPL????" > ../KEGSMAC.app/Contents/PkgInfo
 	cp -f Info.plist ../KEGSMAC.app/Contents/
-	cp -f InfoPlist.strings ../KEGSMAC.app/Contents/Resources/English.lproj/
 	cp -f info.nib ../KEGSMAC.app/Contents/Resources/English.lproj/main.nib
 	cp -f classes.nib ../KEGSMAC.app/Contents/Resources/English.lproj/main.nib
 	cp -f objects.xib ../KEGSMAC.app/Contents/Resources/English.lproj/main.nib
 	cp -f kegsicon.icns ../KEGSMAC.app/Contents/Resources/
+	cp -f 525.icns ../KEGSMAC.app/Contents/Resources/
+	cp -f 2mg.icns ../KEGSMAC.app/Contents/Resources/
 	touch '../KEGSMAC.app/Icon?'
 
 # Linux for X builds:
@@ -49,7 +50,7 @@ kegs.exe: $(OBJECTS) compile_time.o
 
 # Mingw32 (native windows) builds:
 kegswin.exe: $(OBJECTS) compile_time.o
-	$(CC) $(CCOPTS) $(LDOPTS) $(OBJECTS) compile_time.o $(LDFLAGS) -o $(NAME)$(SUFFIX) $(EXTRA_LIBS) -lwinmm -lgdi32 -ldsound -lcomctl32
+	$(CC) $(CCOPTS) $(LDOPTS) $(OBJECTS) compile_time.o $(LDFLAGS) -o $(NAME)$(SUFFIX) $(EXTRA_LIBS) -lwinmm -lgdi32 -ldsound -lcomctl32 -lws2_32
 	mv $(NAME)$(SUFFIX) ..
 
 

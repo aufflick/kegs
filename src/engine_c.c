@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_engine_c_c[] = "@(#)$KmKId: engine_c.c,v 1.51 2004-01-10 15:50:15-05 kentd Exp $";
+const char rcsid_engine_c_c[] = "@(#)$KmKId: engine_c.c,v 1.57 2004-12-03 23:51:01-05 kentd Exp $";
 
 #include "defc.h"
 #include "protos_engine_c.h"
@@ -28,8 +28,10 @@ const char rcsid_engine_c_c[] = "@(#)$KmKId: engine_c.c,v 1.51 2004-01-10 15:50:
 extern int halt_sim;
 extern int g_code_red;
 extern int g_ignore_halts;
+extern int g_user_halt_bad;
 extern double g_fcycles_stop;
 extern double g_last_vbl_dcycs;
+extern double g_cur_dcycs;
 extern int g_wait_pending;
 extern int g_irq_pending;
 extern int g_testing;
@@ -44,9 +46,13 @@ extern byte *g_dummy_memory1_ptr;
 extern int g_num_breakpoints;
 extern word32 g_breakpts[];
 
-extern Pc_log *log_pc_ptr;
-extern Pc_log *log_pc_start_ptr;
-extern Pc_log *log_pc_end_ptr;
+extern Pc_log *g_log_pc_ptr;
+extern Pc_log *g_log_pc_start_ptr;
+extern Pc_log *g_log_pc_end_ptr;
+
+extern Data_log *g_log_data_ptr;
+extern Data_log *g_log_data_start_ptr;
+extern Data_log *g_log_data_end_ptr;
 
 int size_tab[] = {
 #include "size_c.h"
@@ -75,8 +81,9 @@ int bogus[] = {
 
 #define FCYCLES_ROUND	fcycles = (int)(fcycles + fplus_x_m1);
 
-#define	LOG_PC_MACRO()							\
-		tmp_pc_ptr = log_pc_ptr++;				\
+#ifdef LOG_PC
+# define LOG_PC_MACRO()							\
+		tmp_pc_ptr = g_log_pc_ptr++;				\
 		tmp_pc_ptr->dbank_kpc = (dbank << 24) + kpc;		\
 		tmp_pc_ptr->instr = (opcode << 24) + arg_ptr[1] +	\
 			(arg_ptr[2] << 8) + (arg_ptr[3] << 16);		\
@@ -85,10 +92,27 @@ int bogus[] = {
 		tmp_pc_ptr->xreg_yreg = (xreg << 16) + yreg;		\
 		tmp_pc_ptr->stack_direct = (stack << 16) + direct;	\
 		tmp_pc_ptr->dcycs = fcycles + g_last_vbl_dcycs - fplus_2; \
-		if(log_pc_ptr >= log_pc_end_ptr) {			\
+		if(g_log_pc_ptr >= g_log_pc_end_ptr) {			\
 			/*halt2_printf("log_pc oflow %f\n", tmp_pc_ptr->dcycs);*/ \
-			log_pc_ptr = log_pc_start_ptr;			\
+			g_log_pc_ptr = g_log_pc_start_ptr;		\
 		}
+
+# define LOG_DATA_MACRO(in_addr, in_val, in_size)			\
+		g_log_data_ptr->dcycs = fcycles + g_last_vbl_dcycs;	\
+		g_log_data_ptr->addr = in_addr;				\
+		g_log_data_ptr->val = in_val;				\
+		g_log_data_ptr->size = in_size;				\
+		g_log_data_ptr++;					\
+		if(g_log_data_ptr >= g_log_data_end_ptr) {		\
+			g_log_data_ptr = g_log_data_start_ptr;		\
+		}
+
+#else
+# define LOG_PC_MACRO()
+# define LOG_DATA_MACRO(addr, val, size)
+/* Just do nothing */
+#endif
+
 
 #define	GET_1BYTE_ARG	arg = arg_ptr[1];
 #define	GET_2BYTE_ARG	arg = arg_ptr[1] + (arg_ptr[2] << 8);
@@ -270,6 +294,7 @@ extern word32 slow_mem_changed[];
 	}
 
 #define SET_MEMORY8(addr, val)						\
+	LOG_DATA_MACRO(addr, val, 8);					\
 	CYCLES_PLUS_1;							\
 	stat = GET_PAGE_INFO_WR(((addr) >> 8) & 0xffff);		\
 	wstat = PTR2WORD(stat) & 0xff;					\
@@ -284,17 +309,15 @@ extern word32 slow_mem_changed[];
 	}
 
 
-
-
-
 #define SET_MEMORY16(addr, val, in_bank)				\
+	LOG_DATA_MACRO(addr, val, 16);					\
 	stat = GET_PAGE_INFO_WR(((addr) >> 8) & 0xffff);		\
 	wstat = PTR2WORD(stat) & 0xff;					\
 	ptr = stat - wstat + ((addr) & 0xff);				\
-	if((wstat) || (((addr) & 0xff) == 0xff)) {		\
+	if((wstat) || (((addr) & 0xff) == 0xff)) {			\
 		fcycles_tmp1 = fcycles;					\
 		set_memory16_pieces_stub((addr), (val),			\
-			&fcycles_tmp1, fplus_ptr, in_bank);		\
+			&fcycles_tmp1, fplus_1, fplus_x_m1, in_bank);	\
 		fcycles = fcycles_tmp1;					\
 	} else {							\
 		CYCLES_PLUS_2;						\
@@ -303,6 +326,7 @@ extern word32 slow_mem_changed[];
 	}
 
 #define SET_MEMORY24(addr, val, in_bank)				\
+	LOG_DATA_MACRO(addr, val, 24);					\
 	stat = GET_PAGE_INFO_WR(((addr) >> 8) & 0xffff);		\
 	wstat = PTR2WORD(stat) & 0xff;					\
 	ptr = stat - wstat + ((addr) & 0xff);				\
@@ -326,7 +350,7 @@ check_breakpoints(word32 addr)
 
 	count = g_num_breakpoints;
 	for(i = 0; i < count; i++) {
-		if(g_breakpts[i] == addr) {
+		if((g_breakpts[i] & 0xffffff) == addr) {
 			halt2_printf("Hit breakpoint at %06x\n", addr);
 		}
 	}
@@ -464,19 +488,15 @@ set_memory8_io_stub(word32 addr, word32 val, byte *stat, double *fcycs_ptr,
 
 void
 set_memory16_pieces_stub(word32 addr, word32 val, double *fcycs_ptr,
-		Fplus	*fplus_ptr, int in_bank)
+		double fplus_1, double fplus_x_m1, int in_bank)
 {
 	byte	*ptr;
 	byte	*stat;
 	double	fcycles, fcycles_tmp1;
-	double	fplus_1;
-	double	fplus_x_m1;
 	word32	addrp1;
 	word32	wstat;
 
 	fcycles = *fcycs_ptr;
-	fplus_1 = fplus_ptr->plus_1;
-	fplus_x_m1 = fplus_ptr->plus_x_minus_1;
 	SET_MEMORY8(addr, val);
 	addrp1 = addr + 1;
 	if(in_bank) {
@@ -536,14 +556,6 @@ get_memory_c(word32 addr, int cycs)
 	GET_MEMORY8(addr, ret);
 	return ret;
 }
-#if 0
-	stat = page_info[(addr>>8) & 0xffff].rd;
-	ptr = (byte *)((stat & 0xffffff00) | (addr & 0xff));
-	if(stat & (1 << (31 -BANK_IO_BIT))) {
-		return get_memory_io(addr, &in_fcycles);
-	}
-	return *ptr;
-#endif
 
 word32
 get_memory16_c(word32 addr, int cycs)
@@ -576,16 +588,27 @@ set_memory_c(word32 addr, word32 val, int cycs)
 	double	fplus_x_m1;
 	word32	wstat;
 
-	fcycles = 0;
+	fcycles = g_cur_dcycs - g_last_vbl_dcycs;
 	fplus_1 = 0;
 	fplus_x_m1 = 0;
 	SET_MEMORY8(addr, val);
 }
+
 void
 set_memory16_c(word32 addr, word32 val, int cycs)
 {
-	set_memory_c(addr, val, 0);
-	set_memory_c(addr + 1, val >> 8, 0);
+	byte	*stat;
+	byte	*ptr;
+	double	fcycles, fcycles_tmp1;
+	double	fplus_1, fplus_2;
+	double	fplus_x_m1;
+	word32	wstat;
+
+	fcycles = g_cur_dcycs - g_last_vbl_dcycs;
+	fplus_1 = 0;
+	fplus_2 = 0;
+	fplus_x_m1 = 0;
+	SET_MEMORY16(addr, val, 0);
 }
 
 void
@@ -706,10 +729,10 @@ fixed_memory_ptrs_init()
 	/* set g_slow_memory_ptr, g_rom_fc_ff_ptr, g_dummy_memory1_ptr, */
 	/*  and rom_cards_ptr */
 
-	g_slow_memory_ptr = memalloc_align(128*1024, 0);
-	g_dummy_memory1_ptr = memalloc_align(256, 1024);
-	g_rom_fc_ff_ptr = memalloc_align(256*1024, 1024);
-	g_rom_cards_ptr = memalloc_align(16*256, 1024);
+	g_slow_memory_ptr = memalloc_align(128*1024, 0, 0);
+	g_dummy_memory1_ptr = memalloc_align(256, 1024, 0);
+	g_rom_fc_ff_ptr = memalloc_align(256*1024, 512, 0);
+	g_rom_cards_ptr = memalloc_align(16*256, 256, 0);
 
 #if 0
 	printf("g_memory_ptr: %08x, dummy_mem: %08x, slow_mem_ptr: %08x\n",
@@ -757,7 +780,7 @@ get_itimer()
 void
 set_halt_act(int val)
 {
-	if(val == 1 && g_ignore_halts) {
+	if(val == 1 && g_ignore_halts && !g_user_halt_bad) {
 		g_code_red++;
 	} else {
 		halt_sim |= val;
@@ -938,9 +961,7 @@ recalc_accsize:
 
 			FETCH_OPCODE;
 
-#ifdef LOG_PC
 			LOG_PC_MACRO();
-#endif
 
 			switch(opcode) {
 			default:
@@ -957,9 +978,7 @@ recalc_accsize:
 	} else {
 		while(fcycles <= g_fcycles_stop) {
 			FETCH_OPCODE;
-#ifdef LOG_PC
 			LOG_PC_MACRO();
-#endif
 
 			switch(opcode) {
 			default:

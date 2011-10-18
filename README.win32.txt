@@ -2,13 +2,13 @@
 WIN32 port of KEGS (KEGSWIN)
 ----------------------------
 
-There is a different port of KEGS by akilgard called KEGS32.
-You can get it from http://www.geocities.com/akilgard/kegs32.
-This port is leveraged from KEGS32, but mostly a rewrite (perhaps
-for the worse).  The joystick code was taken without too many
-modifications.
+There is a different port of KEGS by Chea Chee Keong (akilgard) called
+KEGS32.  You can get it from http://www.geocities.com/akilgard/kegs32.
+This port is leveraged from KEGS32, but mostly a rewrite (perhaps for
+the worse).  I am grateful for Chea for doing the windows port since I
+did not know any Windows programming.
 
-This port is alpha quality.  Seriously.  Don't expect much.
+This port is alpha quality.  Don't expect much.
 
 This is a bare-bones Win32 port.  It was compiled with Mingw2.0,
 which you can download at: http://www.mingw.org/.  I also had
@@ -49,3 +49,4 @@ In order to compile,
 
 
 You can contact me at kadickey@alumni.princeton.edu
+

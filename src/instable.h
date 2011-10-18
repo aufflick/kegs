@@ -10,7 +10,7 @@
 
 #ifdef ASM
 # ifdef INCLUDE_RCSID_S
-	.stringz "@(#)$KmKId: instable.h,v 1.103 2004-01-10 15:50:50-05 kentd Exp $"
+	.stringz "@(#)$KmKId: instable.h,v 1.104 2004-10-05 20:12:08-04 kentd Exp $"
 # endif
 #endif
 
@@ -2353,9 +2353,8 @@ instdb_SYM		/*  STP */
 	b	dispatch_done
 	depi	RET_STP,3,4,ret0
 #else
-	GET_1BYTE_ARG;
-	CYCLES_PLUS_1
-	FINISH(RET_STP, arg);
+	CYCLES_FINISH
+	FINISH(RET_STP, 0);
 #endif
 
 instdc_SYM		/*  JML (Abs) */

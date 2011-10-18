@@ -9,7 +9,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_iwm_h[] = "@(#)$KmKId: iwm.h,v 1.13 2003-07-08 23:29:48-04 kentd Exp $";
+const char rcsid_iwm_h[] = "@(#)$KmKId: iwm.h,v 1.14 2004-10-20 17:29:38-04 kentd Exp $";
 #endif
 
 #define MAX_TRACKS	(2*80)
@@ -24,7 +24,7 @@ const char rcsid_iwm_h[] = "@(#)$KmKId: iwm.h,v 1.13 2003-07-08 23:29:48-04 kent
 
 typedef struct _Disk Disk;
 
-STRUCT(Track) {
+STRUCT(Trk) {
 	Disk	*dsk;
 	byte	*nib_area;
 	int	track_dirty;
@@ -56,7 +56,7 @@ struct _Disk {
 	int	last_phase;
 	int	nib_pos;
 	int	num_tracks;
-	Track	tracks[MAX_TRACKS];
+	Trk	*trks;
 };
 
 

@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_sound_c[] = "@(#)$KmKId: sound.c,v 1.103 2003-10-17 15:07:47-04 kentd Exp $";
+const char rcsid_sound_c[] = "@(#)$KmKId: sound.c,v 1.108 2004-10-31 00:56:07-04 kentd Exp $";
 
 #include "defc.h"
 
@@ -25,6 +25,7 @@ extern int g_use_shmem;
 extern word32 g_vbl_count;
 extern int g_preferred_rate;
 
+extern int g_c03ef_doc_ptr;
 
 extern double g_last_vbl_dcycs;
 
@@ -34,7 +35,6 @@ byte doc_ram[0x10000 + 16];
 
 word32 doc_sound_ctl = 0;
 word32 doc_saved_val = 0;
-word32 doc_ptr = 0;
 int	g_doc_num_osc_en = 1;
 double	g_dcycs_per_doc_update = 1.0;
 double	g_dupd_per_dcyc = 1.0;
@@ -154,7 +154,7 @@ show_doc_log(void)
 	int	pos;
 	int	i;
 
-	docfile = fopen("doc_log_out", "wt");
+	docfile = fopen("doc_log_out", "w");
 	if(docfile == 0) {
 		printf("fopen failed, errno: %d\n", errno);
 		return;
@@ -397,10 +397,12 @@ sound_reset(double dcycs)
 			halt_printf("reset: has_irq[%02x] = %d\n", i,
 				g_doc_regs[i].has_irq_pending);
 		}
+		g_doc_regs[i].has_irq_pending = 0;
 	}
 	if(g_num_osc_interrupting) {
 		halt_printf("reset: num_osc_int:%d\n", g_num_osc_interrupting);
 	}
+	g_num_osc_interrupting = 0;
 
 	g_doc_num_osc_en = 1;
 	UPDATE_G_DCYCS_PER_DOC_UPDATE(1);
@@ -1212,7 +1214,7 @@ add_sound_irq(int osc)
 	g_doc_regs[osc].has_irq_pending = num_osc_interrupting;
 	g_num_osc_interrupting = num_osc_interrupting;
 
-	add_irq();
+	add_irq(IRQ_PENDING_DOC);
 	if(num_osc_interrupting == 1) {
 		doc_reg_e0 = 0x00 + (osc << 1);
 	}
@@ -1238,7 +1240,9 @@ remove_sound_irq(int osc, int must)
 		g_num_osc_interrupting--;
 		g_doc_regs[osc].has_irq_pending = 0;
 		DOC_LOG("rem_irq", osc, g_cur_dcycs * g_dsamps_per_dcyc, 0);
-		remove_irq();
+		if(g_num_osc_interrupting == 0) {
+			remove_irq(IRQ_PENDING_DOC);
+		}
 
 		first = 0x40 | (doc_reg_e0 >> 1);
 					/* if none found, then def = no ints */
@@ -1641,13 +1645,13 @@ doc_read_c03d(double dcycs)
 
 	if(doc_sound_ctl & 0x40) {
 		/* Read RAM */
-		doc_saved_val = doc_ram[doc_ptr];
+		doc_saved_val = doc_ram[g_c03ef_doc_ptr];
 	} else {
 		/* Read DOC */
 		doc_saved_val = 0;
 
-		osc = doc_ptr & 0x1f;
-		type = (doc_ptr >> 5) & 0x7;
+		osc = g_c03ef_doc_ptr & 0x1f;
+		type = (g_c03ef_doc_ptr >> 5) & 0x7;
 		rptr = &(g_doc_regs[osc]);
 
 		switch(type) {
@@ -1698,24 +1702,24 @@ doc_read_c03d(double dcycs)
 			default:
 				doc_saved_val = 0;
 				halt_printf("Reading bad doc_reg[%04x]: %02x\n",
-							doc_ptr, doc_saved_val);
+					g_c03ef_doc_ptr, doc_saved_val);
 			}
 			break;
 		default:
 			doc_saved_val = 0;
 			halt_printf("Reading bad doc_reg[%04x]: %02x\n",
-						doc_ptr, doc_saved_val);
+					g_c03ef_doc_ptr, doc_saved_val);
 		}
 	}
 
 	doc_printf("read c03d, doc_ptr: %04x, ret: %02x, saved: %02x\n",
-		doc_ptr, ret, doc_saved_val);
+		g_c03ef_doc_ptr, ret, doc_saved_val);
 
-	DOC_LOG("read c03d", -1, dsamps, (doc_ptr << 16) +
+	DOC_LOG("read c03d", -1, dsamps, (g_c03ef_doc_ptr << 16) +
 			(doc_saved_val << 8) + ret);
 
 	if(doc_sound_ctl & 0x20) {
-		doc_ptr = (doc_ptr + 1) & 0xffff;
+		g_c03ef_doc_ptr = (g_c03ef_doc_ptr + 1) & 0xffff;
 	}
 
 
@@ -1758,17 +1762,17 @@ doc_write_c03d(int val, double dcycs)
 	dsamps = dcycs * g_dsamps_per_dcyc;
 	eff_dsamps = dsamps;
 	doc_printf("write c03d, doc_ptr: %04x, val: %02x\n",
-		doc_ptr, val);
+		g_c03ef_doc_ptr, val);
 
-	DOC_LOG("write c03d", -1, dsamps, (doc_ptr << 16) + val);
+	DOC_LOG("write c03d", -1, dsamps, (g_c03ef_doc_ptr << 16) + val);
 
 	if(doc_sound_ctl & 0x40) {
 		/* RAM */
-		doc_ram[doc_ptr] = val;
+		doc_ram[g_c03ef_doc_ptr] = val;
 	} else {
 		/* DOC */
-		osc = doc_ptr & 0x1f;
-		type = (doc_ptr >> 5) & 0x7;
+		osc = g_c03ef_doc_ptr & 0x1f;
+		type = (g_c03ef_doc_ptr >> 5) & 0x7;
 		
 		rptr = &(g_doc_regs[osc]);
 		ctl = rptr->ctl;
@@ -1777,7 +1781,7 @@ doc_write_c03d(int val, double dcycs)
 			if(type < 2 || type == 4 || type == 6) {
 				halt_printf("Osc %d is running, old ctl: %02x, "
 					"but write reg %02x=%02x\n",
-					osc, ctl, doc_ptr & 0xff, val);
+					osc, ctl, g_c03ef_doc_ptr & 0xff, val);
 			}
 		}
 #endif
@@ -1901,33 +1905,21 @@ doc_write_c03d(int val, double dcycs)
 				/* and apparently TaskForce, OOTW, etc */
 				/*  writes to e2-ff, for no apparent reason */
 				doc_printf("Writing doc 0x%x with %02x\n",
-						doc_ptr, val);
+						g_c03ef_doc_ptr, val);
 				break;
 			}
 			break;
 		default:
 			halt_printf("Writing %02x into bad doc_reg[%04x]\n",
-				val, doc_ptr);
+				val, g_c03ef_doc_ptr);
 		}
 	}
 
 	if(doc_sound_ctl & 0x20) {
-		doc_ptr = (doc_ptr + 1) & 0xffff;
+		g_c03ef_doc_ptr = (g_c03ef_doc_ptr + 1) & 0xffff;
 	}
 
 	doc_saved_val = val;
-}
-
-void
-doc_write_c03e(int val)
-{
-	doc_ptr = (doc_ptr & 0xff00) + val;
-}
-
-void
-doc_write_c03f(int val)
-{
-	doc_ptr = (doc_ptr & 0xff) + (val << 8);
 }
 
 void
@@ -1939,8 +1931,8 @@ doc_show_ensoniq_state(int osc)
 	printf("Ensoniq state\n");
 	printf("c03c doc_sound_ctl: %02x, doc_saved_val: %02x\n",
 		doc_sound_ctl, doc_saved_val);
-	printf("doc_ptr: %04x,    num_osc_en: %02x, e0: %02x\n", doc_ptr,
-		g_doc_num_osc_en, doc_reg_e0);
+	printf("doc_ptr: %04x,    num_osc_en: %02x, e0: %02x\n",
+		g_c03ef_doc_ptr, g_doc_num_osc_en, doc_reg_e0);
 
 	for(i = 0; i < 32; i += 8) {
 		printf("irqp: %02x: %04x %04x %04x %04x %04x %04x %04x %04x\n",

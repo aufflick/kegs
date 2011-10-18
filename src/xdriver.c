@@ -8,7 +8,7 @@
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
 
-const char rcsid_xdriver_c[] = "@(#)$KmKId: xdriver.c,v 1.181 2004-03-23 17:25:25-05 kentd Exp $";
+const char rcsid_xdriver_c[] = "@(#)$KmKId: xdriver.c,v 1.187 2004-11-15 16:24:19-05 kentd Exp $";
 
 # if !defined(__CYGWIN__) && !defined(__POWERPC__)
 /* No shared memory on Cygwin */
@@ -136,7 +136,7 @@ int	g_num_a2_keycodes = 0;
 int a2_key_to_xsym[][3] = {
 	{ 0x35,	XK_Escape,	0 },
 	{ 0x7a,	XK_F1,	0 },
-	{ 0x7b,	XK_F2,	0 },
+	{ 0x78,	XK_F2,	0 },
 	{ 0x63,	XK_F3,	0 },
 	{ 0x76,	XK_F4,	0 },
 	{ 0x60,	XK_F5,	0 },
@@ -165,7 +165,7 @@ int a2_key_to_xsym[][3] = {
 	{ 0x1b,	'-', '_' },
 	{ 0x18,	'=', '+' },
 	{ 0x33,	XK_BackSpace, 0 },
-	{ 0x72,	XK_Insert, 0 },		/* Help? */
+	{ 0x72,	XK_Insert, XK_Help },	/* Help? */
 /*	{ 0x73,	XK_Home, 0 },		alias XK_Home to be XK_KP_Equal! */
 	{ 0x74,	XK_Page_Up, 0 },
 	{ 0x47,	XK_Num_Lock, XK_Clear },	/* Clear */
@@ -246,6 +246,23 @@ int
 main(int argc, char **argv)
 {
 	return kegsmain(argc, argv);
+}
+
+void
+x_dialog_create_kegs_conf(const char *str)
+{
+	/* do nothing -- not implemented yet */
+	return;
+}
+
+int
+x_show_alert(int is_fatal, const char *str)
+{
+	/* Not implemented yet */
+	adb_all_keys_up();
+
+	clear_fatal_logs();
+	return 0;
 }
 
 
@@ -1160,14 +1177,22 @@ handle_keysym(XEvent *xev_in)
 	switch(keysym) {
 	case XK_Alt_R:
 	case XK_Meta_R:
+	case XK_Super_R:
 	case XK_Mode_switch:
 	case XK_Cancel:
 		keysym = XK_Print;		/* option */
 		break;
 	case XK_Alt_L:
 	case XK_Meta_L:
+	case XK_Super_L:
 	case XK_Menu:
 		keysym = XK_Scroll_Lock;	/* cmd */
+		break;
+	case 0x1000003:
+		if(keycode == 0x3c) {
+			/* enter key on Mac OS X laptop--make it option */
+			keysym = XK_Print;
+		}
 		break;
 	case NoSymbol:
 		switch(keycode) {
@@ -1196,6 +1221,7 @@ handle_keysym(XEvent *xev_in)
 			keysym = XK_Scroll_Lock;
 			break;
 		case 0x0048:
+		case 0x0076:		/* Windows menu key on Mac OS X */
 			/* menu windows == option */
 			keysym = XK_Print;
 			break;
@@ -1303,4 +1329,10 @@ x_auto_repeat_off(int must)
 		g_auto_repeat_on = 0;
 		adb_kbd_repeat_off();
 	}
+}
+
+void
+x_full_screen(int do_full)
+{
+	return;
 }
